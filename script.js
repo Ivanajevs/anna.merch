@@ -4,17 +4,26 @@
 
 /* ─────────────────────────────────────────────────────────────────────
    ① EMAILJS KONFIGURATION
-   Keys aus https://dashboard.emailjs.com
    ───────────────────────────────────────────────────────────────────── */
 const EMAILJS_PUBLIC_KEY   = "Dud4-yGPgxrJfb0ny";
 const EMAILJS_SERVICE_ID   = "service_n850bzk";
-const EMAILJS_ADMIN_TPL_ID = "template_8qh2y65";  // Bestelleingang an Shop
-const EMAILJS_USER_TPL_ID  = "template_giifnmo";  // Bestätigung an Käufer
+const EMAILJS_ADMIN_TPL_ID = "template_8qh2y65";
+const EMAILJS_USER_TPL_ID  = "template_giifnmo";
 
 /* ─────────────────────────────────────────────────────────────────────
-   ② PRODUKTDATEN
-   colors: Array aus { hex, name } – hex für den Farbkreis,
-                                     name für E-Mail / Bestellung
+   ② SUPABASE KONFIGURATION
+   ▶ Ersetze die beiden Platzhalter mit deinen echten Werten aus:
+     Supabase Dashboard → Project Settings → API
+   ───────────────────────────────────────────────────────────────────── */
+const SUPABASE_URL      = "https://ilbfdcwlmucsyqepurcp.supabase.co";   // ← anpassen
+const SUPABASE_ANON_KEY = "sb_publishable_cyQE2-XQdw1r8WzP6WnEkA_qjaDAfm1";                   // ← anpassen
+
+// Supabase-Client initialisieren (CDN-Import – siehe index.html)
+const { createClient } = supabase;
+const supabaseClient   = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ─────────────────────────────────────────────────────────────────────
+   ③ PRODUKTDATEN
    ───────────────────────────────────────────────────────────────────── */
 const products = [
   {
@@ -43,37 +52,32 @@ const products = [
       { hex: "#000000", name: "Schwarz" },
     ],
   },
-
-  /*
-  {
-    id: 3,
-    name: "Snapback Cap",
-    price: "19,99 €",
-    desc: "Strukturierte 6-Panel-Cap mit gesticktem St.-Anna-Logo.",
-    badge: null,
-    img: "img/cap.jpg",
-    colors: [
-      { hex: "#1a1b2e", name: "Dunkelblau" },
-      { hex: "#555566", name: "Grau" },
-    ],
-  },
-  */
 ];
 
 /* ─────────────────────────────────────────────────────────────────────
-   ③ STATE
+   ④ STATE
    ───────────────────────────────────────────────────────────────────── */
 let currentProduct = null;
 
 /* ─────────────────────────────────────────────────────────────────────
-   ④ PRODUKTE RENDERN
+   ⑤ EINDEUTIGE BESTELL-ID GENERIEREN
+   Format: SA-<Zeitstempel Base36>-<4 Zufallszeichen>
+   Beispiel: SA-LR8K2A-F3TQ
+   ───────────────────────────────────────────────────────────────────── */
+function generateOrderId() {
+  const ts   = Date.now().toString(36).toUpperCase();          // zeitbasiert
+  const rand = Math.random().toString(36).substr(2, 4).toUpperCase(); // zufällig
+  return `SA-${ts}-${rand}`;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   ⑥ PRODUKTE RENDERN
    ───────────────────────────────────────────────────────────────────── */
 function renderProducts() {
   const grid = document.getElementById("productsGrid");
   grid.innerHTML = "";
 
   products.forEach((p, idx) => {
-    // Farbkreise auf der Karte zeigen den Hex-Wert als Hintergrund
     const colorDots = p.colors
       .map(c => `<span class="color-dot" style="background:${c.hex}" title="${c.name}"
                    ${c.hex === "#ffffff" ? 'style="background:#fff;border-color:#bbb"' : ""}></span>`)
@@ -117,35 +121,32 @@ function renderProducts() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑤ FARB-PICKER (visuell)
+   ⑦ FARB-PICKER
    ───────────────────────────────────────────────────────────────────── */
 function buildColorPicker(colors) {
-  const row = document.getElementById("colorSwatchRow");
+  const row    = document.getElementById("colorSwatchRow");
   const hidden = document.getElementById("fieldColor");
-  const label = document.getElementById("colorSelectedLabel");
+  const label  = document.getElementById("colorSelectedLabel");
 
   row.innerHTML = "";
-  hidden.value = "";
+  hidden.value  = "";
   label.textContent = "";
 
   colors.forEach(c => {
     const btn = document.createElement("button");
-    btn.type = "button";
+    btn.type  = "button";
     btn.className = "color-swatch";
     btn.setAttribute("aria-label", c.name);
     btn.setAttribute("title", c.name);
     btn.style.setProperty("--swatch-color", c.hex);
-    // White swatch needs a border so it's visible on white background
     if (c.hex === "#ffffff" || c.hex === "#fff") {
       btn.classList.add("color-swatch--light");
     }
 
     btn.addEventListener("click", () => {
-      // Deselect all
       row.querySelectorAll(".color-swatch").forEach(b => b.classList.remove("is-selected"));
-      // Select this one
       btn.classList.add("is-selected");
-      hidden.value = c.name;
+      hidden.value      = c.name;
       label.textContent = c.name;
     });
 
@@ -154,45 +155,38 @@ function buildColorPicker(colors) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑥ MODAL – ÖFFNEN / SCHLIESSEN
+   ⑧ MODAL – ÖFFNEN / SCHLIESSEN
    ───────────────────────────────────────────────────────────────────── */
 function openModal(product) {
   currentProduct = product;
 
-  // Produktvorschau befüllen
   const img = document.getElementById("modalImg");
-  img.src = product.img;
-  img.alt = product.name;
+  img.src   = product.img;
+  img.alt   = product.name;
   img.onerror = function () {
     this.src = `https://placehold.co/100x100/12131f/e8a020?text=${encodeURIComponent(product.name)}`;
   };
   document.getElementById("modalTitle").textContent = product.name;
   document.getElementById("modalPrice").textContent  = product.price;
 
-  // Farbwähler aufbauen
   buildColorPicker(product.colors);
 
-  // Formular & Erfolg zurücksetzen
   document.getElementById("orderForm").reset();
-  // reset() clears the hidden input too – colour label stays though, clear manually
   document.getElementById("fieldColor").value = "";
   document.getElementById("colorSelectedLabel").textContent = "";
   document.getElementById("colorSwatchRow")
     .querySelectorAll(".color-swatch")
     .forEach(b => b.classList.remove("is-selected"));
 
-  document.getElementById("orderForm").hidden = false;
+  document.getElementById("orderForm").hidden   = false;
   document.getElementById("modalSuccess").hidden = true;
   document.getElementById("formError").textContent = "";
   document.getElementById("submitLabel").textContent = "Bestellung absenden";
-  document.getElementById("submitSpinner").hidden = true;
-  document.getElementById("submitBtn").disabled = false;
+  document.getElementById("submitSpinner").hidden    = true;
+  document.getElementById("submitBtn").disabled      = false;
 
-  // Modal einblenden
   document.getElementById("modalOverlay").classList.add("active");
   document.body.style.overflow = "hidden";
-
-  // Fokus setzen (Accessibility)
   setTimeout(() => document.getElementById("modalClose").focus(), 350);
 }
 
@@ -212,7 +206,7 @@ document.addEventListener("keydown", e => {
 document.getElementById("successClose").addEventListener("click", closeModal);
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑦ FORMULAR-VALIDIERUNG
+   ⑨ FORMULAR-VALIDIERUNG
    ───────────────────────────────────────────────────────────────────── */
 function validateForm() {
   const fields = [
@@ -235,11 +229,15 @@ function validateForm() {
     return "Bitte eine gültige E-Mail-Adresse eingeben.";
   }
 
-  return null; // alles OK
+  return null;
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑧ BESTELLUNG ABSENDEN (EmailJS – 2 Mails)
+   ⑩ BESTELLUNG ABSENDEN
+   Ablauf:
+     1. Bestell-ID generieren
+     2. Daten in Supabase speichern
+     3. Zwei E-Mails via EmailJS versenden (inkl. order_id)
    ───────────────────────────────────────────────────────────────────── */
 document.getElementById("orderForm").addEventListener("submit", async function (e) {
   e.preventDefault();
@@ -253,11 +251,15 @@ document.getElementById("orderForm").addEventListener("submit", async function (
 
   // UI: Lade-Status
   document.getElementById("submitLabel").textContent = "Wird gesendet…";
-  document.getElementById("submitSpinner").hidden = false;
-  document.getElementById("submitBtn").disabled = true;
+  document.getElementById("submitSpinner").hidden    = false;
+  document.getElementById("submitBtn").disabled      = true;
 
-  // Daten sammeln
+  // ── Bestell-ID ────────────────────────────────────────────────────
+  const orderId = generateOrderId();
+
+  // ── Daten sammeln ─────────────────────────────────────────────────
   const orderData = {
+    order_id:       orderId,
     product_name:   currentProduct.name,
     product_price:  currentProduct.price,
     product_img:    window.location.origin + "/" + currentProduct.img,
@@ -277,34 +279,65 @@ document.getElementById("orderForm").addEventListener("submit", async function (
   };
 
   try {
-    // ── Mail 1: Bestelleingang an den Shop ──────────────────────────
+    // ── Schritt 1: In Supabase speichern ──────────────────────────
+    const { error: dbError } = await supabaseClient
+      .from("orders")
+      .insert({
+        order_id:       orderData.order_id,
+        product_name:   orderData.product_name,
+        product_price:  orderData.product_price,
+        size:           orderData.size,
+        color:          orderData.color,
+        gender:         orderData.gender,
+        class_level:    orderData.class_level,
+        class_letter:   orderData.class_letter,
+        customer_name:  orderData.customer_name,
+        customer_email: orderData.customer_email,
+        note:           orderData.note,
+      });
+
+    if (dbError) throw new Error("Supabase: " + dbError.message);
+
+    // ── Schritt 2: Mail an den Shop ────────────────────────────────
     await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_ADMIN_TPL_ID, {
       ...orderData,
       to_email: "bestellung@merch.st-anna.de",
     });
 
-    // ── Mail 2: Bestätigungsmail an den Käufer ──────────────────────
+    // ── Schritt 3: Bestätigungsmail an den Käufer ─────────────────
     await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_USER_TPL_ID, {
       ...orderData,
       to_email: orderData.customer_email,
     });
 
-    // Erfolg anzeigen
-    document.getElementById("orderForm").hidden = true;
+    // ── Erfolg anzeigen ───────────────────────────────────────────
+    // Bestell-ID im Erfolgs-Panel anzeigen
+    const successPanel = document.getElementById("modalSuccess");
+    const existingId   = successPanel.querySelector(".success-order-id");
+    if (!existingId) {
+      const idEl = document.createElement("p");
+      idEl.className = "success-order-id";
+      idEl.innerHTML = `Deine Bestell-ID: <strong>${orderId}</strong>`;
+      successPanel.insertBefore(idEl, successPanel.querySelector(".success-note"));
+    } else {
+      existingId.innerHTML = `Deine Bestell-ID: <strong>${orderId}</strong>`;
+    }
+
+    document.getElementById("orderForm").hidden    = true;
     document.getElementById("modalSuccess").hidden = false;
 
   } catch (err) {
-    console.error("EmailJS Fehler:", err);
+    console.error("Fehler:", err);
     document.getElementById("formError").textContent =
       "Beim Senden ist ein Fehler aufgetreten. Bitte versuche es erneut oder schreibe uns direkt an bestellung@merch.st-anna.de";
     document.getElementById("submitLabel").textContent = "Bestellung absenden";
-    document.getElementById("submitSpinner").hidden = true;
-    document.getElementById("submitBtn").disabled = false;
+    document.getElementById("submitSpinner").hidden    = true;
+    document.getElementById("submitBtn").disabled      = false;
   }
 });
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑨ APP STARTEN
+   ⑪ APP STARTEN
    ───────────────────────────────────────────────────────────────────── */
 (function init() {
   emailjs.init(EMAILJS_PUBLIC_KEY);
