@@ -15,8 +15,8 @@ const EMAILJS_USER_TPL_ID  = "template_giifnmo";
    ▶ Ersetze die beiden Platzhalter mit deinen echten Werten aus:
      Supabase Dashboard → Project Settings → API
    ───────────────────────────────────────────────────────────────────── */
-const SUPABASE_URL      = "https://ilbfdcwlmucsyqepurcp.supabase.co";   // ← anpassen
-const SUPABASE_ANON_KEY = "sb_publishable_cyQE2-XQdw1r8WzP6WnEkA_qjaDAfm1";                   // ← anpassen
+const SUPABASE_URL      = "https://daidxdpsyncqedsixvwm.supabase.co";   // ← anpassen
+const SUPABASE_ANON_KEY = "sb_publishable_wm01ffHn7eXfeJaAiXrGdA_b-VJntmy";                   // ← anpassen
 
 // Supabase-Client initialisieren (CDN-Import – siehe index.html)
 const { createClient } = supabase;
