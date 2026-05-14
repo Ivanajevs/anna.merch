@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Tabelle St. Anna Merch</title>
+  <title>Admin – St. Anna Merch</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -366,11 +366,11 @@
       <h2>Admin-Login</h2>
       <div>
         <label for="loginUser">Benutzername</label>
-        <input type="text" id="loginUser" autocomplete="username" placeholder="Username" />
+        <input type="text" id="loginUser" autocomplete="username" placeholder="admin" />
       </div>
       <div>
         <label for="loginPass">Passwort</label>
-        <input type="password" id="loginPass" autocomplete="current-password" placeholder="Passwort" />
+        <input type="password" id="loginPass" autocomplete="current-password" placeholder="••••••••" />
       </div>
       <p class="login-error" id="loginError"></p>
       <button class="btn-login" id="loginBtn">Anmelden</button>
@@ -419,8 +419,8 @@
      SUPABASE KONFIGURATION
      ▶ Dieselben Werte wie in script.js eintragen!
   ════════════════════════════════════════════════════════════════════ */
-  const SUPABASE_URL      = "https://daidxdpsyncqedsixvwm.supabase.co";  // ← anpassen
-  const SUPABASE_ANON_KEY = "sb_publishable_wm01ffHn7eXfeJaAiXrGdA_b-VJntmy"; 
+  const SUPABASE_URL      = "https://DEINE-PROJECT-ID.supabase.co";  // ← anpassen
+  const SUPABASE_ANON_KEY = "DEIN-ANON-PUBLIC-KEY";                  // ← anpassen
 
   const { createClient } = supabase;
   const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
