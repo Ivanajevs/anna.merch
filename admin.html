@@ -347,6 +347,95 @@
       .detail-grid { grid-template-columns: 1fr; }
       #dashboard { padding: 1rem; }
     }
+
+    /* ── Bestätigungs-Modal ──────────────────────────────────────── */
+    .confirm-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.75);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 300;
+      padding: 1rem;
+    }
+    .confirm-overlay.active { display: flex; }
+    .confirm-modal {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 420px;
+      padding: 2rem;
+      animation: slideUp .2s ease;
+    }
+    .confirm-modal h4 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.4rem;
+      color: var(--gold);
+      letter-spacing: .04em;
+      margin-bottom: 1rem;
+    }
+    .confirm-info {
+      background: var(--bg3);
+      border-radius: var(--radius);
+      padding: .9rem 1.1rem;
+      font-size: .88rem;
+      line-height: 1.6;
+      margin-bottom: 1.2rem;
+      color: var(--text);
+    }
+    .confirm-info strong { color: var(--gold); }
+    .confirm-note {
+      font-size: .78rem;
+      color: var(--text-muted);
+      margin-bottom: 1.4rem;
+    }
+    .confirm-actions {
+      display: flex;
+      gap: .75rem;
+      justify-content: flex-end;
+    }
+    .btn-cancel {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-family: 'DM Sans', sans-serif;
+      font-size: .88rem;
+      padding: .55rem 1.1rem;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .btn-cancel:hover { border-color: var(--red); color: var(--red); }
+    .btn-confirm {
+      background: var(--gold);
+      border: none;
+      color: #000;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1rem;
+      letter-spacing: .06em;
+      padding: .55rem 1.3rem;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background .2s;
+      display: flex; align-items: center; gap: .5rem;
+    }
+    .btn-confirm:hover { background: var(--gold-dim); }
+    .btn-confirm:disabled { opacity: .5; cursor: not-allowed; }
+    .spin {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(0,0,0,.3);
+      border-top-color: #000;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status-badge.pending {
+      opacity: .5;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -414,24 +503,70 @@
     </div>
   </div>
 
+  <!-- ══════════════  BESTÄTIGUNGS-MODAL  ══════════════ -->
+  <div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h4 id="confirmTitle">Status ändern</h4>
+      <div class="confirm-info" id="confirmInfo"></div>
+      <p class="confirm-note" id="confirmNote"></p>
+      <div class="confirm-actions">
+        <button class="btn-cancel" id="confirmCancel">Abbrechen</button>
+        <button class="btn-confirm" id="confirmOk">
+          <span id="confirmLabel">Bestätigen &amp; E-Mail senden</span>
+          <span id="confirmSpinner" class="spin" hidden></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script>
   /* ══════════════════════════════════════════════════════════════════
-     SUPABASE KONFIGURATION
-     ▶ Dieselben Werte wie in script.js eintragen!
+     KONFIGURATION
   ════════════════════════════════════════════════════════════════════ */
-  const SUPABASE_URL      = "https://daidxdpsyncqedsixvwm.supabase.co";  // ← anpassen
-  const SUPABASE_ANON_KEY = "sb_publishable_wm01ffHn7eXfeJaAiXrGdA_b-VJntmy";                  // ← anpassen
+  const SUPABASE_URL      = "https://daidxdpsyncqedsixvwm.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_wm01ffHn7eXfeJaAiXrGdA_b-VJntmy";
+
+  // ▶ Derselbe Cloudflare-Worker wie in script.js
+  const BREVO_WORKER_URL      = "https://anna-merch-mailer.st-anna-merch.workers.dev";
+  // ▶ Template-ID für Statusänderungs-E-Mails (neu anlegen – siehe Anleitung)
+  const BREVO_STATUS_TEMPLATE = 5;
+  const ADMIN_EMAIL           = "bestellung@merch.st-anna.de";
 
   const { createClient } = supabase;
   const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  /* ── Credentials (client-side guard – für schulinternes Tool ausreichend) ── */
   const ADMIN_USER = "admin";
   const ADMIN_PASS = "M1e2r3c4h5!";
 
   let isLoggedIn = false;
 
-  /* ══════════  LOGIN  ═══════════════════════════════════════════════ */
+  /* ══════════  BREVO E-MAIL HELPER  ════════════════════════════════ */
+  async function sendBrevoEmail(toEmail, toName, templateId, params) {
+    const response = await fetch(BREVO_WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: [{ email: toEmail, name: toName }],
+        templateId,
+        params,
+        replyTo: { email: ADMIN_EMAIL },
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(`Brevo ${response.status}: ${err.message || response.statusText}`);
+    }
+    return response.json();
+  }
+
+  /* ══════════  STATUS-LABELS  ════════════════════════════════════════ */
+  const FIELD_LABELS = {
+    paid:      "Bezahlt",
+    ordered:   "Bestellt",
+    delivered: "Ausgeliefert",
+  };
+
+  /* ══════════  LOGIN  ════════════════════════════════════════════════ */
   function attemptLogin() {
     const user = document.getElementById("loginUser").value.trim();
     const pass = document.getElementById("loginPass").value;
@@ -490,7 +625,8 @@
       return;
     }
 
-    document.getElementById("orderCount").textContent = `${data.length} Bestellung${data.length !== 1 ? "en" : ""}`;
+    document.getElementById("orderCount").textContent =
+      `${data.length} Bestellung${data.length !== 1 ? "en" : ""}`;
     tbody.innerHTML = "";
 
     data.forEach(order => {
@@ -516,12 +652,10 @@
         <td class="date-cell">${dateStr}</td>
       `;
 
-      // Klick auf Bestell-ID → Detail-Modal
       tr.querySelector(".order-id-btn").addEventListener("click", () => openDetail(order));
 
-      // Status-Badges
       tr.querySelectorAll(".status-badge").forEach(badge => {
-        badge.addEventListener("click", () => toggleStatus(badge, order));
+        badge.addEventListener("click", () => openConfirm(badge, order));
       });
 
       tbody.appendChild(tr);
@@ -540,33 +674,117 @@
             </button>`;
   }
 
-  /* ══════════  STATUS TOGGLE  ════════════════════════════════════════ */
-  async function toggleStatus(badge, order) {
-    const field    = badge.dataset.field;
-    const newValue = badge.classList.contains("on") ? false : true;
+  /* ══════════  BESTÄTIGUNGS-MODAL  ══════════════════════════════════ */
+  let _pendingBadge = null;
+  let _pendingOrder = null;
+  let _pendingNewValue = null;
 
-    // Optimistisch UI updaten
-    badge.classList.toggle("on",  newValue);
-    badge.classList.toggle("off", !newValue);
-    badge.innerHTML = `<span class="status-dot"></span>${newValue ? "Ja" : "Nein"}`;
+  function openConfirm(badge, order) {
+    const field     = badge.dataset.field;
+    const newValue  = badge.classList.contains("on") ? false : true;
+    const label     = FIELD_LABELS[field] || field;
+    const valueText = newValue ? "✓ JA" : "✗ NEIN";
+    const email     = order.customer_email || "—";
+    const name      = order.customer_name  || "Kunde";
 
-    // In Supabase speichern
-    const { error } = await db
-      .from("orders")
-      .update({ [field]: newValue })
-      .eq("id", order.id);
+    _pendingBadge    = badge;
+    _pendingOrder    = order;
+    _pendingNewValue = newValue;
 
-    if (error) {
-      // Rollback bei Fehler
-      badge.classList.toggle("on",  !newValue);
-      badge.classList.toggle("off", newValue);
-      badge.innerHTML = `<span class="status-dot"></span>${!newValue ? "Ja" : "Nein"}`;
-      alert("Fehler beim Speichern: " + error.message);
-    }
+    document.getElementById("confirmInfo").innerHTML =
+      `Status <strong>${label}</strong> für <strong>${name}</strong> wird auf <strong>${valueText}</strong> gesetzt.`;
 
-    // Order-Objekt lokal aktualisieren, damit Detail-Modal stimmt
-    order[field] = newValue;
+    document.getElementById("confirmNote").textContent =
+      `Es wird automatisch eine E-Mail an ${email} gesendet.`;
+
+    document.getElementById("confirmLabel").textContent = "Bestätigen & E-Mail senden";
+    document.getElementById("confirmSpinner").hidden    = true;
+    document.getElementById("confirmOk").disabled       = false;
+
+    document.getElementById("confirmOverlay").classList.add("active");
+    document.body.style.overflow = "hidden";
   }
+
+  function closeConfirm() {
+    document.getElementById("confirmOverlay").classList.remove("active");
+    document.body.style.overflow = "";
+    _pendingBadge    = null;
+    _pendingOrder    = null;
+    _pendingNewValue = null;
+  }
+
+  document.getElementById("confirmCancel").addEventListener("click", closeConfirm);
+  document.getElementById("confirmOverlay").addEventListener("click", e => {
+    if (e.target === e.currentTarget) closeConfirm();
+  });
+
+  document.getElementById("confirmOk").addEventListener("click", async () => {
+    if (!_pendingBadge) return;
+
+    const badge    = _pendingBadge;
+    const order    = _pendingOrder;
+    const newValue = _pendingNewValue;
+    const field    = badge.dataset.field;
+
+    // Spinner zeigen
+    document.getElementById("confirmLabel").textContent = "Wird gespeichert…";
+    document.getElementById("confirmSpinner").hidden    = false;
+    document.getElementById("confirmOk").disabled       = true;
+    badge.classList.add("pending");
+
+    try {
+      // 1. Supabase aktualisieren
+      const { error: dbError } = await db
+        .from("orders")
+        .update({ [field]: newValue })
+        .eq("id", order.id);
+
+      if (dbError) throw new Error("Supabase: " + dbError.message);
+
+      // 2. E-Mail an Besteller senden
+      const statusLabel = FIELD_LABELS[field] || field;
+      await sendBrevoEmail(
+        order.customer_email,
+        order.customer_name,
+        BREVO_STATUS_TEMPLATE,
+        {
+          customer_name:  order.customer_name  || "—",
+          customer_email: order.customer_email || "—",
+          order_id:       order.order_id       || "—",
+          product_name:   order.product_name   || "—",
+          product_price:  order.product_price  || "—",
+          size:           order.size           || "—",
+          color:          order.color          || "—",
+          status_field:   statusLabel,
+          status_value:   newValue ? "Ja" : "Nein",
+          status_emoji:   newValue ? "✅" : "❌",
+          order_date:     order.created_at
+            ? new Date(order.created_at).toLocaleDateString("de-DE")
+            : "—",
+        }
+      );
+
+      // 3. Badge im UI aktualisieren
+      badge.classList.remove("pending");
+      badge.classList.toggle("on",  newValue);
+      badge.classList.toggle("off", !newValue);
+      badge.innerHTML = `<span class="status-dot"></span>${newValue ? "Ja" : "Nein"}`;
+
+      // 4. Order-Objekt lokal aktualisieren
+      order[field] = newValue;
+
+      closeConfirm();
+
+    } catch (err) {
+      console.error("Fehler:", err);
+      badge.classList.remove("pending");
+      document.getElementById("confirmLabel").textContent = "Bestätigen & E-Mail senden";
+      document.getElementById("confirmSpinner").hidden    = true;
+      document.getElementById("confirmOk").disabled       = false;
+      document.getElementById("confirmInfo").innerHTML +=
+        `<br><span style="color:var(--red);font-size:.8rem">⚠ Fehler: ${err.message}</span>`;
+    }
+  });
 
   /* ══════════  DETAIL MODAL  ═════════════════════════════════════════ */
   function openDetail(order) {
@@ -619,7 +837,7 @@
     if (e.target === e.currentTarget) closeDetail();
   });
   document.addEventListener("keydown", e => {
-    if (e.key === "Escape") closeDetail();
+    if (e.key === "Escape") { closeDetail(); closeConfirm(); }
   });
   </script>
 </body>
