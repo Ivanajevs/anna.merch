@@ -1,30 +1,33 @@
 /* ═══════════════════════════════════════════════════════════════════
    St. Anna Merch Shop – script.js
+   ▶ E-Mail-Versand: Brevo Transactional API (kein eigener Server nötig)
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ─────────────────────────────────────────────────────────────────────
-   ① EMAILJS KONFIGURATION
+   ① BREVO KONFIGURATION
+   ▶ API-Key: Brevo Dashboard → „Mein Konto" → SMTP & API → API-Keys
+      Lege dort einen Key mit NUR der Berechtigung „Transactional emails"
+      an. Dieser Key erlaubt ausschließlich das Versenden von E-Mails –
+      kein Zugriff auf Kontaktlisten, Statistiken o. Ä.
+   ▶ Template-IDs: Brevo Dashboard → Templates → jeweilige ID rechts
    ───────────────────────────────────────────────────────────────────── */
-const EMAILJS_PUBLIC_KEY   = "Dud4-yGPgxrJfb0ny";
-const EMAILJS_SERVICE_ID   = "service_n850bzk";
-const EMAILJS_ADMIN_TPL_ID = "template_8qh2y65";
-const EMAILJS_USER_TPL_ID  = "template_giifnmo";
+const BREVO_API_KEY          = "xkeysib-XXXXXXXXXXXX";   // ← ersetzen
+const BREVO_ADMIN_TEMPLATE   = 1;   // ← Template-ID „Neue Bestellung (Admin)"
+const BREVO_USER_TEMPLATE    = 2;   // ← Template-ID „Bestellbestätigung (Kunde)"
+const ADMIN_EMAIL            = "bestellung@merch.st-anna.de";
 
 /* ─────────────────────────────────────────────────────────────────────
    ② SUPABASE KONFIGURATION
-   ▶ Ersetze die beiden Platzhalter mit deinen echten Werten aus:
-     Supabase Dashboard → Project Settings → API
-   ───────────────────────────────────────────────────────────────────── */
-const SUPABASE_URL      = "https://daidxdpsyncqedsixvwm.supabase.co";   // ← anpassen
-const SUPABASE_ANON_KEY = "sb_publishable_wm01ffHn7eXfeJaAiXrGdA_b-VJntmy";                   // ← anpassen
+   ─────────────────────────────────────────────────────────────────── */
+const SUPABASE_URL      = "https://daidxdpsyncqedsixvwm.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_wm01ffHn7eXfeJaAiXrGdA_b-VJntmy";
 
-// Supabase-Client initialisieren (CDN-Import – siehe index.html)
 const { createClient } = supabase;
 const supabaseClient   = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ─────────────────────────────────────────────────────────────────────
    ③ PRODUKTDATEN
-   ───────────────────────────────────────────────────────────────────── */
+   ─────────────────────────────────────────────────────────────────── */
 const products = [
   {
     id: 1,
@@ -56,23 +59,53 @@ const products = [
 
 /* ─────────────────────────────────────────────────────────────────────
    ④ STATE
-   ───────────────────────────────────────────────────────────────────── */
+   ─────────────────────────────────────────────────────────────────── */
 let currentProduct = null;
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑤ EINDEUTIGE BESTELL-ID GENERIEREN
-   Format: SA-<Zeitstempel Base36>-<4 Zufallszeichen>
-   Beispiel: SA-LR8K2A-F3TQ
-   ───────────────────────────────────────────────────────────────────── */
+   ⑤ BESTELL-ID GENERIEREN
+   Format: SA-<Zeitstempel Base36>-<4 Zufallszeichen>   Bsp: SA-LR8K2A-F3TQ
+   ─────────────────────────────────────────────────────────────────── */
 function generateOrderId() {
-  const ts   = Date.now().toString(36).toUpperCase();          // zeitbasiert
-  const rand = Math.random().toString(36).substr(2, 4).toUpperCase(); // zufällig
+  const ts   = Date.now().toString(36).toUpperCase();
+  const rand = Math.random().toString(36).substr(2, 4).toUpperCase();
   return `SA-${ts}-${rand}`;
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑥ PRODUKTE RENDERN
-   ───────────────────────────────────────────────────────────────────── */
+   ⑥ BREVO HELPER – sendet eine Template-Mail
+   ▶ toEmail   – Empfänger-Adresse
+   ▶ toName    – Empfänger-Name (für Anrede im Template)
+   ▶ templateId – Integer, z. B. BREVO_ADMIN_TEMPLATE
+   ▶ params    – Objekt mit Template-Variablen  {{ params.KEY }}
+   ─────────────────────────────────────────────────────────────────── */
+async function sendBrevoEmail(toEmail, toName, templateId, params) {
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "api-key": BREVO_API_KEY,
+    },
+    body: JSON.stringify({
+      to: [{ email: toEmail, name: toName }],
+      templateId: templateId,
+      params: params,
+      /* replyTo lässt den Admin direkt auf Kunden-Mails antworten */
+      replyTo: { email: params.customer_email || ADMIN_EMAIL },
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(`Brevo ${response.status}: ${err.message || response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   ⑦ PRODUKTE RENDERN
+   ─────────────────────────────────────────────────────────────────── */
 function renderProducts() {
   const grid = document.getElementById("productsGrid");
   grid.innerHTML = "";
@@ -121,8 +154,8 @@ function renderProducts() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑦ FARB-PICKER
-   ───────────────────────────────────────────────────────────────────── */
+   ⑧ FARB-PICKER
+   ─────────────────────────────────────────────────────────────────── */
 function buildColorPicker(colors) {
   const row    = document.getElementById("colorSwatchRow");
   const hidden = document.getElementById("fieldColor");
@@ -155,8 +188,8 @@ function buildColorPicker(colors) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑧ MODAL – ÖFFNEN / SCHLIESSEN
-   ───────────────────────────────────────────────────────────────────── */
+   ⑨ MODAL – ÖFFNEN / SCHLIESSEN
+   ─────────────────────────────────────────────────────────────────── */
 function openModal(product) {
   currentProduct = product;
 
@@ -206,8 +239,8 @@ document.addEventListener("keydown", e => {
 document.getElementById("successClose").addEventListener("click", closeModal);
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑨ FORMULAR-VALIDIERUNG
-   ───────────────────────────────────────────────────────────────────── */
+   ⑩ FORMULAR-VALIDIERUNG
+   ─────────────────────────────────────────────────────────────────── */
 function validateForm() {
   const fields = [
     { id: "fieldSize",        label: "Größe" },
@@ -233,12 +266,13 @@ function validateForm() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑩ BESTELLUNG ABSENDEN
+   ⑪ BESTELLUNG ABSENDEN
    Ablauf:
      1. Bestell-ID generieren
      2. Daten in Supabase speichern
-     3. Zwei E-Mails via EmailJS versenden (inkl. order_id)
-   ───────────────────────────────────────────────────────────────────── */
+     3. Admin-Mail via Brevo (Template BREVO_ADMIN_TEMPLATE)
+     4. Kunden-Bestätigungsmail via Brevo (Template BREVO_USER_TEMPLATE)
+   ─────────────────────────────────────────────────────────────────── */
 document.getElementById("orderForm").addEventListener("submit", async function (e) {
   e.preventDefault();
 
@@ -254,10 +288,10 @@ document.getElementById("orderForm").addEventListener("submit", async function (
   document.getElementById("submitSpinner").hidden    = false;
   document.getElementById("submitBtn").disabled      = true;
 
-  // ── Bestell-ID ────────────────────────────────────────────────────
+  // ── Bestell-ID ─────────────────────────────────────────────────────
   const orderId = generateOrderId();
 
-  // ── Daten sammeln ─────────────────────────────────────────────────
+  // ── Daten sammeln ───────────────────────────────────────────────────
   const orderData = {
     order_id:       orderId,
     product_name:   currentProduct.name,
@@ -275,11 +309,10 @@ document.getElementById("orderForm").addEventListener("submit", async function (
                       day: "2-digit", month: "2-digit", year: "numeric",
                       hour: "2-digit", minute: "2-digit",
                     }),
-    reply_to: document.getElementById("fieldEmail").value.trim(),
   };
 
   try {
-    // ── Schritt 1: In Supabase speichern ──────────────────────────
+    // ── Schritt 1: In Supabase speichern ─────────────────────────────
     const { error: dbError } = await supabaseClient
       .from("orders")
       .insert({
@@ -298,20 +331,24 @@ document.getElementById("orderForm").addEventListener("submit", async function (
 
     if (dbError) throw new Error("Supabase: " + dbError.message);
 
-    // ── Schritt 2: Mail an den Shop ────────────────────────────────
-    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_ADMIN_TPL_ID, {
-      ...orderData,
-      to_email: "bestellung@merch.st-anna.de",
-    });
+    // ── Schritt 2: Admin-Mail ─────────────────────────────────────────
+    // Alle orderData-Felder werden als {{ params.KEY }} im Template genutzt.
+    await sendBrevoEmail(
+      ADMIN_EMAIL,
+      "St. Anna Merch Team",
+      BREVO_ADMIN_TEMPLATE,
+      orderData
+    );
 
-    // ── Schritt 3: Bestätigungsmail an den Käufer ─────────────────
-    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_USER_TPL_ID, {
-      ...orderData,
-      to_email: orderData.customer_email,
-    });
+    // ── Schritt 3: Bestätigungsmail an den Käufer ─────────────────────
+    await sendBrevoEmail(
+      orderData.customer_email,
+      orderData.customer_name,
+      BREVO_USER_TEMPLATE,
+      orderData
+    );
 
-    // ── Erfolg anzeigen ───────────────────────────────────────────
-    // Bestell-ID im Erfolgs-Panel anzeigen
+    // ── Erfolg anzeigen ───────────────────────────────────────────────
     const successPanel = document.getElementById("modalSuccess");
     const existingId   = successPanel.querySelector(".success-order-id");
     if (!existingId) {
@@ -337,9 +374,8 @@ document.getElementById("orderForm").addEventListener("submit", async function (
 });
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑪ APP STARTEN
-   ───────────────────────────────────────────────────────────────────── */
+   ⑫ APP STARTEN
+   ─────────────────────────────────────────────────────────────────── */
 (function init() {
-  emailjs.init(EMAILJS_PUBLIC_KEY);
   renderProducts();
 })();
