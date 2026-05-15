@@ -103,7 +103,6 @@ async function sendBrevoEmail(toEmail, toName, templateId, params) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "api-key": BREVO_API_KEY,
     },
     body: JSON.stringify({
       to: [{ email: toEmail, name: toName }],
