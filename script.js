@@ -115,7 +115,6 @@ async function sendBrevoEmail(toEmail, toName, templateId, params) {
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(`Brevo ${response.status}: ${err.message || response.statusText}`);
   }
 
   return response.json();
