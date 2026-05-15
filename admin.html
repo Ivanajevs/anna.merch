@@ -528,8 +528,12 @@
 
   // ▶ Derselbe Cloudflare-Worker wie in script.js
   const BREVO_WORKER_URL      = "https://anna-merch-mailer.st-anna-merch.workers.dev";
-  // ▶ Template-ID für Statusänderungs-E-Mails (neu anlegen – siehe Anleitung)
-  const BREVO_STATUS_TEMPLATE = 5;
+  // ▶ Je ein Brevo-Template pro Status (IDs anpassen – siehe Anleitung)
+  const BREVO_STATUS_TEMPLATES = {
+    paid:      5,  // E-Mail wenn "Bezahlt" geändert wird
+    ordered:   6,  // E-Mail wenn "Bestellt" geändert wird
+    delivered: 7,  // E-Mail wenn "Abgeholt" geändert wird
+  };
   const ADMIN_EMAIL           = "bestellung@merch.st-anna.de";
 
   const { createClient } = supabase;
@@ -694,10 +698,13 @@
     document.getElementById("confirmInfo").innerHTML =
       `Status <strong>${label}</strong> für <strong>${name}</strong> wird auf <strong>${valueText}</strong> gesetzt.`;
 
-    document.getElementById("confirmNote").textContent =
-      `Es wird automatisch eine E-Mail an ${email} gesendet.`;
+    document.getElementById("confirmNote").textContent = newValue
+      ? `Es wird automatisch eine E-Mail an ${email} gesendet.`
+      : `Keine E-Mail wird versendet (Status wird nur zurückgesetzt).`;
 
-    document.getElementById("confirmLabel").textContent = "Bestätigen & E-Mail senden";
+    document.getElementById("confirmLabel").textContent = newValue
+      ? "Bestätigen & E-Mail senden"
+      : "Bestätigen";
     document.getElementById("confirmSpinner").hidden    = true;
     document.getElementById("confirmOk").disabled       = false;
 
@@ -741,28 +748,29 @@
 
       if (dbError) throw new Error("Supabase: " + dbError.message);
 
-      // 2. E-Mail an Besteller senden
-      const statusLabel = FIELD_LABELS[field] || field;
-      await sendBrevoEmail(
-        order.customer_email,
-        order.customer_name,
-        BREVO_STATUS_TEMPLATE,
-        {
-          customer_name:  order.customer_name  || "—",
-          customer_email: order.customer_email || "—",
-          order_id:       order.order_id       || "—",
-          product_name:   order.product_name   || "—",
-          product_price:  order.product_price  || "—",
-          size:           order.size           || "—",
-          color:          order.color          || "—",
-          status_field:   statusLabel,
-          status_value:   newValue ? "Ja" : "Nein",
-          status_emoji:   newValue ? "✅" : "❌",
-          order_date:     order.created_at
-            ? new Date(order.created_at).toLocaleDateString("de-DE")
-            : "—",
-        }
-      );
+      // 2. E-Mail an Besteller senden (nur wenn Status auf "Ja" gesetzt wird)
+      if (newValue === true) {
+        const templateId  = BREVO_STATUS_TEMPLATES[field];
+        const statusLabel = FIELD_LABELS[field] || field;
+        await sendBrevoEmail(
+          order.customer_email,
+          order.customer_name,
+          templateId,
+          {
+            customer_name:  order.customer_name  || "—",
+            customer_email: order.customer_email || "—",
+            order_id:       order.order_id       || "—",
+            product_name:   order.product_name   || "—",
+            product_price:  order.product_price  || "—",
+            size:           order.size           || "—",
+            color:          order.color          || "—",
+            status_field:   statusLabel,
+            order_date:     order.created_at
+              ? new Date(order.created_at).toLocaleDateString("de-DE")
+              : "—",
+          }
+        );
+      }
 
       // 3. Badge im UI aktualisieren
       badge.classList.remove("pending");
