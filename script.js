@@ -117,8 +117,6 @@ async function sendBrevoEmail(toEmail, toName, templateId, params) {
     const err = await response.json().catch(() => ({}));
   }
 
-  return response.json();
-}
 
 /* ─────────────────────────────────────────────────────────────────────
    ⑦ PRODUKTE RENDERN
