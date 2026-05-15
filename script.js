@@ -1,21 +1,19 @@
 /* ═══════════════════════════════════════════════════════════════════
    St. Anna Merch Shop – script.js
-   ▶ E-Mail-Versand: Brevo Transactional API (kein eigener Server nötig)
+   ▶ E-Mail-Versand: Cloudflare Worker → Brevo (API-Key serverseitig)
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ─────────────────────────────────────────────────────────────────────
-   ① BREVO KONFIGURATION
-   ▶ API-Key: Brevo Dashboard → „Mein Konto" → SMTP & API → API-Keys
-      Lege dort einen Key mit NUR der Berechtigung „Transactional emails"
-      an. Dieser Key erlaubt ausschließlich das Versenden von E-Mails –
-      kein Zugriff auf Kontaktlisten, Statistiken o. Ä.
-   ▶ Template-IDs: Brevo Dashboard → Templates → jeweilige ID rechts
-   ───────────────────────────────────────────────────────────────────── */
-const BREVO_WORKER_URL     = "https://anna-merch-mailer.st-anna-merch.workers.dev";
+   ① BREVO / WORKER KONFIGURATION
+   ─────────────────────────────────────────────────────────────────── */
+const BREVO_WORKER_URL     = "https://anna-merch-mailer.st-anna-merch.workers.dev"; // ← anpassen
 const BREVO_ADMIN_TEMPLATE = 4;
 const BREVO_USER_TEMPLATE  = 3;
 const ADMIN_EMAIL          = "bestellung@merch.st-anna.de";
 
+/* ─────────────────────────────────────────────────────────────────────
+   ② BREVO HELPER – sendet über Cloudflare Worker (kein Key im Code)
+   ─────────────────────────────────────────────────────────────────── */
 async function sendBrevoEmail(toEmail, toName, templateId, params) {
   const response = await fetch(BREVO_WORKER_URL, {
     method: "POST",
@@ -35,8 +33,9 @@ async function sendBrevoEmail(toEmail, toName, templateId, params) {
 
   return response.json();
 }
+
 /* ─────────────────────────────────────────────────────────────────────
-   ② SUPABASE KONFIGURATION
+   ③ SUPABASE KONFIGURATION
    ─────────────────────────────────────────────────────────────────── */
 const SUPABASE_URL      = "https://daidxdpsyncqedsixvwm.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_wm01ffHn7eXfeJaAiXrGdA_b-VJntmy";
@@ -45,7 +44,7 @@ const { createClient } = supabase;
 const supabaseClient   = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ─────────────────────────────────────────────────────────────────────
-   ③ PRODUKTDATEN
+   ④ PRODUKTDATEN
    ─────────────────────────────────────────────────────────────────── */
 const products = [
   {
@@ -77,46 +76,18 @@ const products = [
 ];
 
 /* ─────────────────────────────────────────────────────────────────────
-   ④ STATE
+   ⑤ STATE
    ─────────────────────────────────────────────────────────────────── */
 let currentProduct = null;
 
 /* ─────────────────────────────────────────────────────────────────────
-   ⑤ BESTELL-ID GENERIEREN
-   Format: SA-<Zeitstempel Base36>-<4 Zufallszeichen>   Bsp: SA-LR8K2A-F3TQ
+   ⑥ BESTELL-ID GENERIEREN
    ─────────────────────────────────────────────────────────────────── */
 function generateOrderId() {
   const ts   = Date.now().toString(36).toUpperCase();
   const rand = Math.random().toString(36).substr(2, 4).toUpperCase();
   return `SA-${ts}-${rand}`;
 }
-
-/* ─────────────────────────────────────────────────────────────────────
-   ⑥ BREVO HELPER – sendet eine Template-Mail
-   ▶ toEmail   – Empfänger-Adresse
-   ▶ toName    – Empfänger-Name (für Anrede im Template)
-   ▶ templateId – Integer, z. B. BREVO_ADMIN_TEMPLATE
-   ▶ params    – Objekt mit Template-Variablen  {{ params.KEY }}
-   ─────────────────────────────────────────────────────────────────── */
-async function sendBrevoEmail(toEmail, toName, templateId, params) {
-  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      to: [{ email: toEmail, name: toName }],
-      templateId: templateId,
-      params: params,
-      /* replyTo lässt den Admin direkt auf Kunden-Mails antworten */
-      replyTo: { email: params.customer_email || ADMIN_EMAIL },
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-  }
-
 
 /* ─────────────────────────────────────────────────────────────────────
    ⑦ PRODUKTE RENDERN
@@ -226,8 +197,8 @@ function openModal(product) {
     .querySelectorAll(".color-swatch")
     .forEach(b => b.classList.remove("is-selected"));
 
-  document.getElementById("orderForm").hidden   = false;
-  document.getElementById("modalSuccess").hidden = true;
+  document.getElementById("orderForm").hidden    = false;
+  document.getElementById("modalSuccess").hidden  = true;
   document.getElementById("formError").textContent = "";
   document.getElementById("submitLabel").textContent = "Bestellung absenden";
   document.getElementById("submitSpinner").hidden    = true;
@@ -269,7 +240,7 @@ function validateForm() {
 
   for (const f of fields) {
     const el = document.getElementById(f.id);
-    if (!el.value.trim()) return `Bitte das Feld „${f.label}" ausfüllen.`;
+    if (!el.value.trim()) return `Bitte das Feld "${f.label}" ausfüllen.`;
   }
 
   const email = document.getElementById("fieldEmail").value.trim();
@@ -282,11 +253,6 @@ function validateForm() {
 
 /* ─────────────────────────────────────────────────────────────────────
    ⑪ BESTELLUNG ABSENDEN
-   Ablauf:
-     1. Bestell-ID generieren
-     2. Daten in Supabase speichern
-     3. Admin-Mail via Brevo (Template BREVO_ADMIN_TEMPLATE)
-     4. Kunden-Bestätigungsmail via Brevo (Template BREVO_USER_TEMPLATE)
    ─────────────────────────────────────────────────────────────────── */
 document.getElementById("orderForm").addEventListener("submit", async function (e) {
   e.preventDefault();
@@ -298,15 +264,12 @@ document.getElementById("orderForm").addEventListener("submit", async function (
   }
   document.getElementById("formError").textContent = "";
 
-  // UI: Lade-Status
   document.getElementById("submitLabel").textContent = "Wird gesendet…";
   document.getElementById("submitSpinner").hidden    = false;
   document.getElementById("submitBtn").disabled      = true;
 
-  // ── Bestell-ID ─────────────────────────────────────────────────────
   const orderId = generateOrderId();
 
-  // ── Daten sammeln ───────────────────────────────────────────────────
   const orderData = {
     order_id:       orderId,
     product_name:   currentProduct.name,
@@ -327,7 +290,7 @@ document.getElementById("orderForm").addEventListener("submit", async function (
   };
 
   try {
-    // ── Schritt 1: In Supabase speichern ─────────────────────────────
+    // Schritt 1: Supabase
     const { error: dbError } = await supabaseClient
       .from("orders")
       .insert({
@@ -346,24 +309,13 @@ document.getElementById("orderForm").addEventListener("submit", async function (
 
     if (dbError) throw new Error("Supabase: " + dbError.message);
 
-    // ── Schritt 2: Admin-Mail ─────────────────────────────────────────
-    // Alle orderData-Felder werden als {{ params.KEY }} im Template genutzt.
-    await sendBrevoEmail(
-      ADMIN_EMAIL,
-      "St. Anna Merch Team",
-      BREVO_ADMIN_TEMPLATE,
-      orderData
-    );
+    // Schritt 2: Admin-Mail
+    await sendBrevoEmail(ADMIN_EMAIL, "St. Anna Merch Team", BREVO_ADMIN_TEMPLATE, orderData);
 
-    // ── Schritt 3: Bestätigungsmail an den Käufer ─────────────────────
-    await sendBrevoEmail(
-      orderData.customer_email,
-      orderData.customer_name,
-      BREVO_USER_TEMPLATE,
-      orderData
-    );
+    // Schritt 3: Kunden-Mail
+    await sendBrevoEmail(orderData.customer_email, orderData.customer_name, BREVO_USER_TEMPLATE, orderData);
 
-    // ── Erfolg anzeigen ───────────────────────────────────────────────
+    // Erfolg anzeigen
     const successPanel = document.getElementById("modalSuccess");
     const existingId   = successPanel.querySelector(".success-order-id");
     if (!existingId) {
