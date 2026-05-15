@@ -11,9 +11,9 @@
       kein Zugriff auf Kontaktlisten, Statistiken o. Ä.
    ▶ Template-IDs: Brevo Dashboard → Templates → jeweilige ID rechts
    ───────────────────────────────────────────────────────────────────── */
-const BREVO_API_KEY          = "xkeysib-XXXXXXXXXXXX";   // ← ersetzen
-const BREVO_ADMIN_TEMPLATE   = 1;   // ← Template-ID „Neue Bestellung (Admin)"
-const BREVO_USER_TEMPLATE    = 2;   // ← Template-ID „Bestellbestätigung (Kunde)"
+const BREVO_API_KEY          = "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";   // ← ersetzen
+const BREVO_ADMIN_TEMPLATE   = 4;   // ← Template-ID „Neue Bestellung (Admin)"
+const BREVO_USER_TEMPLATE    = 3;   // ← Template-ID „Bestellbestätigung (Kunde)"
 const ADMIN_EMAIL            = "bestellung@merch.st-anna.de";
 
 /* ─────────────────────────────────────────────────────────────────────
