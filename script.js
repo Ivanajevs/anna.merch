@@ -11,7 +11,7 @@
       kein Zugriff auf Kontaktlisten, Statistiken o. Ä.
    ▶ Template-IDs: Brevo Dashboard → Templates → jeweilige ID rechts
    ───────────────────────────────────────────────────────────────────── */
-const BREVO_WORKER_URL     = "anna-merch-mailer.st-anna-merch.workers.dev";
+const BREVO_WORKER_URL     = "https://anna-merch-mailer.st-anna-merch.workers.dev";
 const BREVO_ADMIN_TEMPLATE = 4;
 const BREVO_USER_TEMPLATE  = 3;
 const ADMIN_EMAIL          = "bestellung@merch.st-anna.de";
