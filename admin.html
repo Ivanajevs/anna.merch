@@ -3,850 +3,1083 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin – St. Anna Merch</title>
+  <title>Admin · St. Anna Merch</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet" />
 
-  <!-- Supabase CDN -->
+  <!-- Supabase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
   <style>
-    /* ── CSS-Variablen (passend zu style.css) ───────────────────── */
-    :root {
-      --bg:        #fce7e7;
-      --bg2:       #f8aaaa;
-      --bg3:       #f58b8b;
-      --gold:      #fd0000;
-      --gold-dim:  #d44013;
-      --text:      #000000;
-      --text-muted:#880000;
-      --radius:    10px;
-      --green:     #22c55e;
-      --red:       #ef4444;
-      --border:    rgba(232,160,32,.18);
-    }
+    /* ═══════════════════════════════════════════════════════
+       SICHERHEITSHINWEIS / RLS-KONFIGURATION FÜR SUPABASE
+       ═══════════════════════════════════════════════════════
 
+       Führe folgende SQL-Befehle im Supabase SQL-Editor aus
+       (Dashboard → SQL Editor → New Query):
+
+       -- 1. RLS aktivieren
+       ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+
+       -- 2. Anonyme Nutzer dürfen NUR INSERT (Kunden bestellen)
+       CREATE POLICY "anon_insert_only"
+         ON orders
+         FOR INSERT
+         TO anon
+         WITH CHECK (true);
+
+       -- 3. Eingeloggte Admins dürfen alles lesen und ändern
+       CREATE POLICY "admin_select"
+         ON orders
+         FOR SELECT
+         TO authenticated
+         USING (true);
+
+       CREATE POLICY "admin_update"
+         ON orders
+         FOR UPDATE
+         TO authenticated
+         USING (true)
+         WITH CHECK (true);
+
+       -- WICHTIG: Kein SELECT-Policy für "anon" → Kunden können
+       -- niemals andere Bestellungen lesen. Kein DELETE-Policy
+       -- für irgendwen → Bestellungen können nicht gelöscht werden
+       -- (Schutz vor Datenverlust).
+
+       -- 4. Neue Spalte für "Abholbereit" hinzufügen (einmalig):
+       ALTER TABLE orders ADD COLUMN IF NOT EXISTS ready_for_pickup BOOLEAN DEFAULT FALSE;
+
+       ═══════════════════════════════════════════════════════
+       WEITERES SICHERHEITSKONZEPT (Cloudflare Worker / Brevo)
+       ═══════════════════════════════════════════════════════
+       - Den Brevo-API-Key NIEMALS in script.js einbauen.
+         Er gehört ausschließlich als Secret in den Cloudflare Worker.
+       - Den Cloudflare Worker mit CORS-Einschränkungen absichern:
+         Nur deine GitHub-Pages-Domain als Origin zulassen.
+       - Den Supabase Anon Key in script.js belassen – er ist
+         öffentlich designt und sicher, solange RLS aktiv ist.
+       - Den Supabase Service Role Key NIEMALS im Frontend nutzen.
+         Er umgeht RLS vollständig.
+    */
+
+    /* ═══════════════  RESET & TOKENS  ═══════════════ */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg:        #0d0d0f;
+      --surface:   #16161a;
+      --surface2:  #1e1e24;
+      --border:    #2a2a32;
+      --gold:      #c8a96e;
+      --gold-dim:  #8a7048;
+      --text:      #e8e6e0;
+      --muted:     #7a7880;
+      --green:     #4caf7d;
+      --red:       #e05c5c;
+      --blue:      #5c9be0;
+      --purple:    #9b7fe8;
+      --radius:    10px;
+      --font-head: 'Bebas Neue', sans-serif;
+      --font-body: 'DM Sans', sans-serif;
+    }
+
+    html { font-size: 15px; }
     body {
-      font-family: 'DM Sans', sans-serif;
+      font-family: var(--font-body);
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
     }
 
-    /* ── Header ─────────────────────────────────────────────────── */
-    header {
-      background: var(--bg2);
-      border-bottom: 1px solid var(--border);
-      padding: 1rem 2rem;
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-    }
-    .logo-main {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.6rem;
-      color: var(--gold);
-      letter-spacing: .04em;
-    }
-    .logo-sub {
-      font-size: .75rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: .12em;
-    }
-    .admin-badge {
-      margin-left: auto;
-      font-size: .7rem;
-      background: var(--gold);
-      color: #000;
-      font-weight: 600;
-      padding: .25rem .7rem;
-      border-radius: 99px;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-    }
-    #logoutBtn {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      font-family: 'DM Sans', sans-serif;
-      font-size: .8rem;
-      padding: .4rem .9rem;
-      border-radius: var(--radius);
-      cursor: pointer;
-      transition: all .2s;
-    }
-    #logoutBtn:hover { border-color: var(--gold); color: var(--gold); }
-
-    /* ── Login Screen ────────────────────────────────────────────── */
+    /* ═══════════════  LOGIN SCREEN  ═══════════════ */
     #loginScreen {
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: calc(100vh - 70px);
-      padding: 2rem;
+      min-height: 100vh;
+      padding: 1.5rem;
+      background:
+        radial-gradient(ellipse 60% 40% at 50% 0%, rgba(200,169,110,.07) 0%, transparent 70%),
+        var(--bg);
     }
+
     .login-card {
-      background: var(--bg2);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 2.5rem 2rem;
       width: 100%;
       max-width: 380px;
-      display: flex;
-      flex-direction: column;
-      gap: 1.2rem;
+      box-shadow: 0 24px 60px rgba(0,0,0,.6);
     }
-    .login-card h2 {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.8rem;
+
+    .login-logo {
+      font-family: var(--font-head);
+      font-size: 2rem;
       color: var(--gold);
       letter-spacing: .04em;
+      margin-bottom: .2rem;
     }
-    .login-card label {
-      font-size: .78rem;
-      color: var(--text-muted);
+    .login-sub {
+      font-size: .8rem;
+      color: var(--muted);
+      margin-bottom: 2rem;
+      letter-spacing: .06em;
       text-transform: uppercase;
-      letter-spacing: .1em;
+    }
+
+    .login-card label {
       display: block;
+      font-size: .75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .07em;
       margin-bottom: .4rem;
     }
     .login-card input {
       width: 100%;
-      padding: .7rem 1rem;
-      background: var(--bg3);
+      background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: 6px;
       color: var(--text);
-      font-family: 'DM Sans', sans-serif;
+      font-family: var(--font-body);
       font-size: .95rem;
+      padding: .65rem .85rem;
+      margin-bottom: 1.1rem;
       outline: none;
       transition: border-color .2s;
     }
     .login-card input:focus { border-color: var(--gold); }
+
     .login-error {
-      font-size: .83rem;
       color: var(--red);
-      min-height: 1.2rem;
+      font-size: .82rem;
+      margin-bottom: .9rem;
+      min-height: 1.1rem;
     }
+
     .btn-login {
       width: 100%;
-      padding: .8rem;
       background: var(--gold);
+      color: #0d0d0f;
       border: none;
-      border-radius: var(--radius);
-      color: #000;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.1rem;
-      letter-spacing: .06em;
+      border-radius: 6px;
+      font-family: var(--font-body);
+      font-size: .95rem;
+      font-weight: 600;
+      padding: .72rem;
       cursor: pointer;
-      transition: background .2s;
-    }
-    .btn-login:hover { background: var(--gold-dim); }
-
-    /* ── Dashboard ───────────────────────────────────────────────── */
-    #dashboard {
-      display: none;
-      padding: 2rem;
-    }
-    .dash-header {
       display: flex;
-      align-items: baseline;
-      gap: 1rem;
-      margin-bottom: 1.8rem;
-      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+      transition: opacity .2s;
     }
-    .dash-header h1 {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 2.2rem;
+    .btn-login:hover { opacity: .88; }
+    .btn-login:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ═══════════════  ADMIN SHELL  ═══════════════ */
+    #adminShell { display: none; flex-direction: column; min-height: 100vh; }
+
+    /* Top Bar */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .85rem 1.5rem;
+      gap: 1rem;
+    }
+    .topbar-brand {
+      font-family: var(--font-head);
+      font-size: 1.45rem;
       color: var(--gold);
       letter-spacing: .04em;
+      white-space: nowrap;
     }
-    .order-count {
-      font-size: .8rem;
-      color: var(--text-muted);
+    .topbar-brand span { color: var(--muted); font-size: 1rem; margin-left: .4rem; }
+
+    .topbar-actions { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+
+    .topbar-user {
+      font-size: .78rem;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 200px;
     }
-    .btn-refresh {
-      margin-left: auto;
+
+    .btn-sm {
       background: transparent;
       border: 1px solid var(--border);
-      color: var(--text-muted);
-      font-family: 'DM Sans', sans-serif;
+      color: var(--text);
+      border-radius: 6px;
+      font-family: var(--font-body);
       font-size: .8rem;
-      padding: .4rem .9rem;
-      border-radius: var(--radius);
+      padding: .38rem .85rem;
       cursor: pointer;
-      transition: all .2s;
+      white-space: nowrap;
+      transition: border-color .2s, color .2s;
     }
-    .btn-refresh:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-sm:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-sm.danger:hover { border-color: var(--red); color: var(--red); }
 
-    /* ── Tabelle ─────────────────────────────────────────────────── */
-    .table-wrap {
-      overflow-x: auto;
-      border-radius: var(--radius);
+    /* Stats Bar */
+    .stats-bar {
+      display: flex;
+      gap: .75rem;
+      padding: 1rem 1.5rem;
+      flex-wrap: wrap;
+    }
+    .stat-card {
+      background: var(--surface);
       border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: .75rem 1.1rem;
+      flex: 1;
+      min-width: 130px;
+    }
+    .stat-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: .25rem; }
+    .stat-value { font-family: var(--font-head); font-size: 1.8rem; color: var(--gold); line-height: 1; }
+
+    /* Toolbar */
+    .toolbar {
+      display: flex;
+      gap: .6rem;
+      padding: 0 1.5rem .8rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .toolbar input[type="text"] {
+      flex: 1;
+      min-width: 180px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: .88rem;
+      padding: .5rem .85rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .toolbar input[type="text"]:focus { border-color: var(--gold); }
+    .toolbar select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: .88rem;
+      padding: .5rem .75rem;
+      outline: none;
+      cursor: pointer;
+    }
+    .btn-export {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      font-family: var(--font-body);
+      font-size: .8rem;
+      padding: .5rem 1rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-export:hover { border-color: var(--gold); color: var(--gold); }
+
+    /* Table */
+    .table-wrap {
+      padding: 0 1.5rem 2rem;
+      overflow-x: auto;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: .88rem;
+      font-size: .82rem;
     }
-    thead th {
-      background: var(--bg3);
-      color: var(--text-muted);
+    th {
+      text-align: left;
+      padding: .55rem .75rem;
       font-size: .7rem;
       text-transform: uppercase;
-      letter-spacing: .12em;
-      font-weight: 600;
-      padding: .85rem 1.1rem;
-      text-align: left;
-      white-space: nowrap;
+      letter-spacing: .07em;
+      color: var(--muted);
       border-bottom: 1px solid var(--border);
-    }
-    tbody tr {
-      border-bottom: 1px solid rgba(232,160,32,.07);
-      transition: background .15s;
-    }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: rgba(232,160,32,.04); }
-    tbody td {
-      padding: .85rem 1.1rem;
-      vertical-align: middle;
       white-space: nowrap;
-    }
-    .order-id-btn {
-      background: none;
-      border: none;
-      color: var(--gold);
-      font-family: 'DM Sans', sans-serif;
-      font-size: .88rem;
-      font-weight: 600;
       cursor: pointer;
-      text-decoration: underline;
-      text-underline-offset: 3px;
-      padding: 0;
-    }
-    .order-id-btn:hover { color: var(--gold-dim); }
-
-    /* ── Status-Badges (klickbar) ────────────────────────────────── */
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: .4rem;
-      padding: .3rem .8rem;
-      border-radius: 99px;
-      font-size: .75rem;
-      font-weight: 600;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-      cursor: pointer;
-      border: none;
-      transition: opacity .2s, transform .1s;
       user-select: none;
     }
-    .status-badge:hover { opacity: .85; }
-    .status-badge:active { transform: scale(.95); }
-    .status-badge.on  { background: rgba(34,197,94,.15);  color: var(--green); }
-    .status-badge.off { background: rgba(239,68,68,.12);  color: var(--red);   }
-    .status-dot {
-      width: 6px; height: 6px;
-      border-radius: 50%;
-      background: currentColor;
+    th:hover { color: var(--gold); }
+    th.sorted-asc::after  { content: ' ↑'; color: var(--gold); }
+    th.sorted-desc::after { content: ' ↓'; color: var(--gold); }
+
+    td {
+      padding: .6rem .75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
     }
+    tr:hover td { background: rgba(200,169,110,.04); }
 
-    .date-cell { color: var(--text-muted); font-size: .8rem; }
-
-    /* ── Loading / Empty ─────────────────────────────────────────── */
-    .table-state {
-      padding: 3rem;
-      text-align: center;
-      color: var(--text-muted);
-      font-size: .9rem;
+    .badge {
+      display: inline-block;
+      padding: .18rem .55rem;
+      border-radius: 4px;
+      font-size: .7rem;
+      font-weight: 600;
+      letter-spacing: .04em;
     }
+    .badge-new      { background: rgba(92,155,224,.15); color: var(--blue); border: 1px solid rgba(92,155,224,.35); }
+    .badge-ordered  { background: rgba(155,127,232,.15); color: var(--purple); border: 1px solid rgba(155,127,232,.35); }
+    .badge-ready    { background: rgba(200,169,110,.15); color: var(--gold); border: 1px solid rgba(200,169,110,.35); }
+    .badge-delivered{ background: rgba(76,175,125,.15); color: var(--green); border: 1px solid rgba(76,175,125,.35); }
 
-    /* ── Detail Modal ────────────────────────────────────────────── */
-    .modal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,.7);
+    .toggle-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1.1rem;
+      line-height: 1;
+      padding: .1rem;
+      transition: transform .15s;
+      display: block;
+      margin: auto;
+    }
+    .toggle-btn:hover { transform: scale(1.25); }
+
+    .detail-link {
+      background: none;
+      border: none;
+      color: var(--gold-dim);
+      font-size: .78rem;
+      cursor: pointer;
+      text-decoration: underline;
+      font-family: var(--font-body);
+      transition: color .2s;
+    }
+    .detail-link:hover { color: var(--gold); }
+
+    /* ═══════════════  DETAIL MODAL  ═══════════════ */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.65);
       backdrop-filter: blur(4px);
+      z-index: 200;
       display: none;
       align-items: center;
       justify-content: center;
-      z-index: 200;
       padding: 1rem;
     }
-    .modal-overlay.active { display: flex; }
+    .overlay.open { display: flex; }
+
     .detail-modal {
-      background: var(--bg2);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
+      padding: 2rem;
       width: 100%;
-      max-width: 540px;
+      max-width: 480px;
+      position: relative;
+      box-shadow: 0 32px 80px rgba(0,0,0,.7);
       max-height: 90vh;
       overflow-y: auto;
-      padding: 2rem;
-      position: relative;
-      animation: slideUp .25s ease;
     }
-    @keyframes slideUp {
-      from { transform: translateY(20px); opacity: 0; }
-      to   { transform: translateY(0);    opacity: 1; }
-    }
-    .detail-close {
+    .modal-close-btn {
       position: absolute;
-      top: 1rem; right: 1rem;
+      top: 1rem;
+      right: 1rem;
       background: none;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      width: 32px; height: 32px;
-      border-radius: 50%;
+      border: none;
+      color: var(--muted);
+      font-size: 1.1rem;
       cursor: pointer;
-      font-size: .9rem;
-      display: flex; align-items: center; justify-content: center;
-      transition: all .2s;
+      line-height: 1;
+      transition: color .2s;
     }
-    .detail-close:hover { border-color: var(--gold); color: var(--gold); }
+    .modal-close-btn:hover { color: var(--text); }
+
     .detail-modal h3 {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.5rem;
+      font-family: var(--font-head);
+      font-size: 1.6rem;
       color: var(--gold);
-      letter-spacing: .04em;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.2rem;
     }
-    .detail-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: .8rem 1.5rem;
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: .5rem 0;
+      border-bottom: 1px solid var(--border);
+      gap: 1rem;
     }
-    .detail-item { display: flex; flex-direction: column; gap: .2rem; }
-    .detail-label {
-      font-size: .68rem;
+    .detail-row:last-child { border-bottom: none; }
+    .detail-key {
+      font-size: .72rem;
       text-transform: uppercase;
-      letter-spacing: .12em;
-      color: var(--text-muted);
+      letter-spacing: .07em;
+      color: var(--muted);
+      white-space: nowrap;
     }
-    .detail-value {
-      font-size: .92rem;
-      color: var(--text);
-      font-weight: 600;
+    .detail-val {
+      font-size: .9rem;
+      text-align: right;
       word-break: break-word;
     }
-    .detail-item.full { grid-column: 1 / -1; }
-    .detail-divider {
-      grid-column: 1 / -1;
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: .4rem 0;
+    .check-icon { font-size: 1rem; }
+    .check-yes { color: var(--green); }
+    .check-no  { color: var(--red); }
+
+    /* ═══════════════  LOADING & EMPTY  ═══════════════ */
+    .state-row td {
+      text-align: center;
+      color: var(--muted);
+      padding: 3rem 1rem;
+      font-size: .9rem;
     }
 
-    @media (max-width: 600px) {
-      .detail-grid { grid-template-columns: 1fr; }
-      #dashboard { padding: 1rem; }
-    }
-
-    /* ── Bestätigungs-Modal ──────────────────────────────────────── */
-    .confirm-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,.75);
-      backdrop-filter: blur(4px);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 300;
-      padding: 1rem;
-    }
-    .confirm-overlay.active { display: flex; }
-    .confirm-modal {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      width: 100%;
-      max-width: 420px;
-      padding: 2rem;
-      animation: slideUp .2s ease;
-    }
-    .confirm-modal h4 {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.4rem;
-      color: var(--gold);
-      letter-spacing: .04em;
-      margin-bottom: 1rem;
-    }
-    .confirm-info {
-      background: var(--bg3);
-      border-radius: var(--radius);
-      padding: .9rem 1.1rem;
-      font-size: .88rem;
-      line-height: 1.6;
-      margin-bottom: 1.2rem;
-      color: var(--text);
-    }
-    .confirm-info strong { color: var(--gold); }
-    .confirm-note {
-      font-size: .78rem;
-      color: var(--text-muted);
-      margin-bottom: 1.4rem;
-    }
-    .confirm-actions {
-      display: flex;
-      gap: .75rem;
-      justify-content: flex-end;
-    }
-    .btn-cancel {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      font-family: 'DM Sans', sans-serif;
-      font-size: .88rem;
-      padding: .55rem 1.1rem;
-      border-radius: var(--radius);
-      cursor: pointer;
-      transition: all .2s;
-    }
-    .btn-cancel:hover { border-color: var(--red); color: var(--red); }
-    .btn-confirm {
-      background: var(--gold);
-      border: none;
-      color: #000;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1rem;
-      letter-spacing: .06em;
-      padding: .55rem 1.3rem;
-      border-radius: var(--radius);
-      cursor: pointer;
-      transition: background .2s;
-      display: flex; align-items: center; gap: .5rem;
-    }
-    .btn-confirm:hover { background: var(--gold-dim); }
-    .btn-confirm:disabled { opacity: .5; cursor: not-allowed; }
-    .spin {
-      width: 14px; height: 14px;
-      border: 2px solid rgba(0,0,0,.3);
-      border-top-color: #000;
+    /* ═══════════════  SPINNER  ═══════════════ */
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(13,13,15,.4);
+      border-top-color: #0d0d0f;
       border-radius: 50%;
-      animation: spin .6s linear infinite;
+      animation: spin .7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .status-badge.pending {
-      opacity: .5;
-      cursor: not-allowed;
-      pointer-events: none;
+
+    /* ═══════════════  TOAST  ═══════════════ */
+    #toast {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: .7rem 1.1rem;
+      font-size: .85rem;
+      z-index: 999;
+      transform: translateY(120%);
+      opacity: 0;
+      transition: transform .3s, opacity .3s;
+      box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.success { border-left: 3px solid var(--green); }
+    #toast.error   { border-left: 3px solid var(--red); }
+
+    /* ═══════════════  RESPONSIVE  ═══════════════ */
+    @media (max-width: 640px) {
+      .topbar { padding: .7rem 1rem; }
+      .stats-bar, .toolbar, .table-wrap { padding-left: 1rem; padding-right: 1rem; }
+      .topbar-user { display: none; }
     }
   </style>
 </head>
 <body>
 
-  <header>
-    <div>
-      <div class="logo-main">St. Anna</div>
-      <div class="logo-sub">Merch Shop</div>
-    </div>
-    <span class="admin-badge">Admin</span>
-    <button id="logoutBtn" hidden>Abmelden</button>
-  </header>
+<!-- ═══════════════════════════════════════════════
+     LOGIN SCREEN
+     Keine hartcodierten Zugangsdaten – Authentifizierung
+     läuft vollständig über Supabase Auth.
+════════════════════════════════════════════════════ -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">St. Anna</div>
+    <div class="login-sub">Admin-Dashboard</div>
 
-  <!-- ══════════════  LOGIN  ══════════════ -->
-  <div id="loginScreen">
-    <div class="login-card">
-      <h2>Admin-Login</h2>
-      <div>
-        <label for="loginUser">Benutzername</label>
-        <input type="text" id="loginUser" autocomplete="username" placeholder="admin" />
-      </div>
-      <div>
-        <label for="loginPass">Passwort</label>
-        <input type="password" id="loginPass" autocomplete="current-password" placeholder="••••••••" />
-      </div>
-      <p class="login-error" id="loginError"></p>
-      <button class="btn-login" id="loginBtn">Anmelden</button>
+    <label for="loginEmail">E-Mail</label>
+    <input type="email" id="loginEmail" placeholder="admin@example.de" autocomplete="username" />
+
+    <label for="loginPassword">Passwort</label>
+    <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" />
+
+    <div class="login-error" id="loginError"></div>
+
+    <button class="btn-login" id="loginBtn">
+      <span id="loginLabel">Anmelden</span>
+      <span id="loginSpinner" class="spinner" style="display:none; border-color:rgba(0,0,0,.25); border-top-color:#000;"></span>
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     ADMIN SHELL – nur nach erfolgreicher Supabase-Auth sichtbar
+════════════════════════════════════════════════════ -->
+<div id="adminShell">
+
+  <!-- Top Bar -->
+  <div class="topbar">
+    <div class="topbar-brand">St. Anna <span>Admin</span></div>
+    <div class="topbar-actions">
+      <span class="topbar-user" id="topbarUser"></span>
+      <button class="btn-sm" id="refreshBtn">↻ Aktualisieren</button>
+      <button class="btn-sm danger" id="logoutBtn">Abmelden</button>
     </div>
   </div>
 
-  <!-- ══════════════  DASHBOARD  ══════════════ -->
-  <div id="dashboard">
-    <div class="dash-header">
-      <h1>Bestellungen</h1>
-      <span class="order-count" id="orderCount"></span>
-      <button class="btn-refresh" id="refreshBtn">↻ Aktualisieren</button>
+  <!-- Stats -->
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-card">
+      <div class="stat-label">Gesamt</div>
+      <div class="stat-value" id="statTotal">—</div>
     </div>
-
-    <div class="table-wrap">
-      <table id="ordersTable">
-        <thead>
-          <tr>
-            <th>Bestell-ID</th>
-            <th>Produkt</th>
-            <th>Kunde</th>
-            <th>Bezahlt</th>
-            <th>Bestellt</th>
-            <th>Ausgeliefert</th>
-            <th>Datum</th>
-          </tr>
-        </thead>
-        <tbody id="ordersBody">
-          <tr><td colspan="7" class="table-state">Lade Bestellungen…</td></tr>
-        </tbody>
-      </table>
+    <div class="stat-card">
+      <div class="stat-label">Bezahlt</div>
+      <div class="stat-value" id="statPaid">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Bestellt</div>
+      <div class="stat-value" id="statOrdered">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Abholbereit</div>
+      <div class="stat-value" id="statReady">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Ausgeliefert</div>
+      <div class="stat-value" id="statDelivered">—</div>
     </div>
   </div>
 
-  <!-- ══════════════  DETAIL MODAL  ══════════════ -->
-  <div class="modal-overlay" id="detailOverlay">
-    <div class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
-      <button class="detail-close" id="detailClose" aria-label="Schließen">✕</button>
-      <h3 id="detailTitle">Bestellung</h3>
-      <div class="detail-grid" id="detailGrid"></div>
-    </div>
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="Suchen: Name, E-Mail, Produkt, Klasse …" />
+    <select id="filterStatus">
+      <option value="all">Alle Status</option>
+      <option value="new">Neu</option>
+      <option value="ordered">Bestellt</option>
+      <option value="ready">Abholbereit</option>
+      <option value="delivered">Ausgeliefert</option>
+    </select>
+    <select id="filterProduct">
+      <option value="all">Alle Produkte</option>
+    </select>
+    <button class="btn-export" id="exportBtn">⬇ CSV Export</button>
   </div>
 
-  <!-- ══════════════  BESTÄTIGUNGS-MODAL  ══════════════ -->
-  <div class="confirm-overlay" id="confirmOverlay">
-    <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
-      <h4 id="confirmTitle">Status ändern</h4>
-      <div class="confirm-info" id="confirmInfo"></div>
-      <p class="confirm-note" id="confirmNote"></p>
-      <div class="confirm-actions">
-        <button class="btn-cancel" id="confirmCancel">Abbrechen</button>
-        <button class="btn-confirm" id="confirmOk">
-          <span id="confirmLabel">Bestätigen &amp; E-Mail senden</span>
-          <span id="confirmSpinner" class="spin" hidden></span>
-        </button>
-      </div>
-    </div>
+  <!-- Table -->
+  <div class="table-wrap">
+    <table id="ordersTable">
+      <thead>
+        <tr>
+          <th data-col="created_at">Datum</th>
+          <th data-col="name">Name</th>
+          <th data-col="class">Klasse</th>
+          <th data-col="product">Produkt</th>
+          <th data-col="size">Größe</th>
+          <th data-col="color">Farbe</th>
+          <th data-col="status">Status</th>
+          <th style="text-align:center">Bezahlt</th>
+          <th style="text-align:center">Bestellt</th>
+          <th style="text-align:center">Abholbereit</th>
+          <th style="text-align:center">Ausgeliefert</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="ordersBody">
+        <tr class="state-row"><td colspan="12">Lade Bestellungen …</td></tr>
+      </tbody>
+    </table>
   </div>
 
-  <script>
-  /* ══════════════════════════════════════════════════════════════════
-     KONFIGURATION
-  ════════════════════════════════════════════════════════════════════ */
-  const SUPABASE_URL      = "https://daidxdpsyncqedsixvwm.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_wm01ffHn7eXfeJaAiXrGdA_b-VJntmy";
+</div><!-- /adminShell -->
 
-  // ▶ Derselbe Cloudflare-Worker wie in script.js
-  const BREVO_WORKER_URL      = "https://anna-merch-mailer.st-anna-merch.workers.dev";
-  // ▶ Je ein Brevo-Template pro Status (IDs anpassen – siehe Anleitung)
-  const BREVO_STATUS_TEMPLATES = {
-    paid:      5,  // E-Mail wenn "Bezahlt" geändert wird
-    ordered:   6,  // E-Mail wenn "Bestellt" geändert wird
-    delivered: 7,  // E-Mail wenn "Abgeholt" geändert wird
-  };
-  const ADMIN_EMAIL           = "bestellung@merch.st-anna.de";
+<!-- ═══════════════════════════════════════════════
+     DETAIL MODAL
+════════════════════════════════════════════════════ -->
+<div class="overlay" id="detailOverlay">
+  <div class="detail-modal">
+    <button class="modal-close-btn" id="detailClose">✕</button>
+    <h3 id="detailTitle">Detail</h3>
+    <div id="detailBody"></div>
+  </div>
+</div>
 
-  const { createClient } = supabase;
-  const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+<!-- Toast -->
+<div id="toast"></div>
 
-  const ADMIN_USER = "admin";
-  const ADMIN_PASS = "M1e2r3c4h5!";
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   KONFIGURATION
+   ─────────────────────────────────────────────────────────────────
+   Trage hier deinen Supabase URL und den ANON KEY ein.
+   Der Anon Key ist öffentlich designt – er ist KEIN Sicherheitsrisiko,
+   solange RLS (Row Level Security) aktiviert ist.
+   Den Service Role Key NIEMALS hier einbauen.
+═══════════════════════════════════════════════════════════════════ */
+const SUPABASE_URL  = 'https://DEIN-PROJEKT.supabase.co';   // ← anpassen
+const SUPABASE_ANON = 'DEIN-ANON-KEY';                      // ← anpassen
 
-  let isLoggedIn = false;
+/* ═══════════════════════════════════════════════════════════════════
+   SUPABASE CLIENT
+═══════════════════════════════════════════════════════════════════ */
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-  /* ══════════  BREVO E-MAIL HELPER  ════════════════════════════════ */
-  async function sendBrevoEmail(toEmail, toName, templateId, params) {
-    const response = await fetch(BREVO_WORKER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: [{ email: toEmail, name: toName }],
-        templateId,
-        params,
-        replyTo: { email: ADMIN_EMAIL },
-      }),
-    });
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(`Brevo ${response.status}: ${err.message || response.statusText}`);
-    }
-    return response.json();
+/* ═══════════════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════════════ */
+let allOrders   = [];   // rohe Datenbankdaten
+let sortCol     = 'created_at';
+let sortDir     = 'desc';
+let currentUser = null;
+
+/* ═══════════════════════════════════════════════════════════════════
+   DOM-REFERENZEN
+═══════════════════════════════════════════════════════════════════ */
+const loginScreen  = document.getElementById('loginScreen');
+const adminShell   = document.getElementById('adminShell');
+const loginEmail   = document.getElementById('loginEmail');
+const loginPassword= document.getElementById('loginPassword');
+const loginBtn     = document.getElementById('loginBtn');
+const loginLabel   = document.getElementById('loginLabel');
+const loginSpinner = document.getElementById('loginSpinner');
+const loginError   = document.getElementById('loginError');
+const topbarUser   = document.getElementById('topbarUser');
+const refreshBtn   = document.getElementById('refreshBtn');
+const logoutBtn    = document.getElementById('logoutBtn');
+const searchInput  = document.getElementById('searchInput');
+const filterStatus = document.getElementById('filterStatus');
+const filterProduct= document.getElementById('filterProduct');
+const exportBtn    = document.getElementById('exportBtn');
+const ordersBody   = document.getElementById('ordersBody');
+const detailOverlay= document.getElementById('detailOverlay');
+const detailClose  = document.getElementById('detailClose');
+const detailTitle  = document.getElementById('detailTitle');
+const detailBody   = document.getElementById('detailBody');
+const toast        = document.getElementById('toast');
+
+// Stats
+const statTotal     = document.getElementById('statTotal');
+const statPaid      = document.getElementById('statPaid');
+const statOrdered   = document.getElementById('statOrdered');
+const statReady     = document.getElementById('statReady');
+const statDelivered = document.getElementById('statDelivered');
+
+/* ═══════════════════════════════════════════════════════════════════
+   TOAST HELPER
+═══════════════════════════════════════════════════════════════════ */
+let toastTimer = null;
+function showToast(msg, type = 'success') {
+  toast.textContent = msg;
+  toast.className   = `show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toast.className = ''; }, 3000);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   AUTH: SESSION-PRÜFUNG BEIM LADEN
+   Supabase speichert die Session im localStorage. Ist der Nutzer
+   bereits eingeloggt, wird der Login-Screen übersprungen.
+═══════════════════════════════════════════════════════════════════ */
+(async () => {
+  const { data: { session } } = await db.auth.getSession();
+  if (session?.user) {
+    currentUser = session.user;
+    showAdmin();
+  }
+})();
+
+/* Supabase Auth-State-Listener – reagiert auf Login/Logout */
+db.auth.onAuthStateChange((_event, session) => {
+  if (session?.user) {
+    currentUser = session.user;
+    showAdmin();
+  } else {
+    currentUser = null;
+    showLogin();
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   LOGIN
+═══════════════════════════════════════════════════════════════════ */
+loginBtn.addEventListener('click', async () => {
+  const email    = loginEmail.value.trim();
+  const password = loginPassword.value;
+  loginError.textContent = '';
+
+  if (!email || !password) {
+    loginError.textContent = 'Bitte E-Mail und Passwort eingeben.';
+    return;
   }
 
-  /* ══════════  STATUS-LABELS  ════════════════════════════════════════ */
-  const FIELD_LABELS = {
-    paid:      "Bezahlt",
-    ordered:   "Bestellt",
-    delivered: "Ausgeliefert",
-  };
+  loginBtn.disabled    = true;
+  loginLabel.style.display  = 'none';
+  loginSpinner.style.display = 'inline-block';
 
-  /* ══════════  LOGIN  ════════════════════════════════════════════════ */
-  function attemptLogin() {
-    const user = document.getElementById("loginUser").value.trim();
-    const pass = document.getElementById("loginPass").value;
-    const err  = document.getElementById("loginError");
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
 
-    if (user === ADMIN_USER && pass === ADMIN_PASS) {
-      isLoggedIn = true;
-      document.getElementById("loginScreen").style.display = "none";
-      document.getElementById("dashboard").style.display   = "block";
-      document.getElementById("logoutBtn").hidden = false;
-      loadOrders();
+  loginBtn.disabled    = false;
+  loginLabel.style.display  = '';
+  loginSpinner.style.display = 'none';
+
+  if (error) {
+    loginError.textContent = 'Login fehlgeschlagen: ' + error.message;
+    return;
+  }
+
+  // onAuthStateChange übernimmt den Rest
+});
+
+/* Enter-Taste im Login */
+[loginEmail, loginPassword].forEach(el =>
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') loginBtn.click(); })
+);
+
+/* ═══════════════════════════════════════════════════════════════════
+   LOGOUT
+═══════════════════════════════════════════════════════════════════ */
+logoutBtn.addEventListener('click', async () => {
+  await db.auth.signOut();
+  // onAuthStateChange ruft showLogin() auf
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   SCREEN-SWITCHING
+═══════════════════════════════════════════════════════════════════ */
+function showLogin() {
+  loginScreen.style.display = 'flex';
+  adminShell.style.display  = 'none';
+  loginEmail.value    = '';
+  loginPassword.value = '';
+  loginError.textContent = '';
+  allOrders = [];
+}
+
+function showAdmin() {
+  loginScreen.style.display = 'none';
+  adminShell.style.display  = 'flex';
+  topbarUser.textContent    = currentUser?.email ?? '';
+  loadOrders();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   DATEN LADEN
+   Nur authentifizierte Nutzer können SELECT ausführen (RLS).
+═══════════════════════════════════════════════════════════════════ */
+async function loadOrders() {
+  ordersBody.innerHTML = '<tr class="state-row"><td colspan="12">Lade Bestellungen …</td></tr>';
+
+  const { data, error } = await db
+    .from('orders')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    ordersBody.innerHTML = `<tr class="state-row"><td colspan="12">Fehler: ${escHtml(error.message)}</td></tr>`;
+    showToast('Fehler beim Laden: ' + error.message, 'error');
+    return;
+  }
+
+  allOrders = data ?? [];
+  populateProductFilter();
+  updateStats();
+  renderTable();
+}
+
+refreshBtn.addEventListener('click', loadOrders);
+
+/* ═══════════════════════════════════════════════════════════════════
+   PRODUKT-FILTER BEFÜLLEN
+═══════════════════════════════════════════════════════════════════ */
+function populateProductFilter() {
+  const products = [...new Set(allOrders.map(o => o.product).filter(Boolean))].sort();
+  const current  = filterProduct.value;
+  filterProduct.innerHTML = '<option value="all">Alle Produkte</option>';
+  products.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    filterProduct.appendChild(opt);
+  });
+  if (products.includes(current)) filterProduct.value = current;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   STATS
+═══════════════════════════════════════════════════════════════════ */
+function updateStats() {
+  statTotal.textContent     = allOrders.length;
+  statPaid.textContent      = allOrders.filter(o => o.paid).length;
+  statOrdered.textContent   = allOrders.filter(o => o.ordered).length;
+  statReady.textContent     = allOrders.filter(o => o.ready_for_pickup).length;
+  statDelivered.textContent = allOrders.filter(o => o.delivered).length;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SORTIERUNG (Spaltenköpfe)
+═══════════════════════════════════════════════════════════════════ */
+document.querySelectorAll('th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (sortCol === col) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
     } else {
-      err.textContent = "Falscher Benutzername oder falsches Passwort.";
-      document.getElementById("loginPass").value = "";
+      sortCol = col;
+      sortDir = 'asc';
     }
+    document.querySelectorAll('th[data-col]').forEach(t => t.className = '');
+    th.className = sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc';
+    renderTable();
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   RENDER TABELLE
+═══════════════════════════════════════════════════════════════════ */
+function getFilteredOrders() {
+  const q       = searchInput.value.trim().toLowerCase();
+  const status  = filterStatus.value;
+  const product = filterProduct.value;
+
+  return allOrders
+    .filter(o => {
+      // Textsuche
+      if (q) {
+        const haystack = [o.name, o.email, o.product, o.class, o.color, o.size, o.note]
+          .join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      // Status-Filter
+      if (status !== 'all') {
+        if (status === 'new'       && (o.paid || o.ordered || o.ready_for_pickup || o.delivered)) return false;
+        if (status === 'ordered'   && !o.ordered)          return false;
+        if (status === 'ready'     && !o.ready_for_pickup) return false;
+        if (status === 'delivered' && !o.delivered)        return false;
+      }
+      // Produkt-Filter
+      if (product !== 'all' && o.product !== product) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      let av = a[sortCol] ?? '';
+      let bv = b[sortCol] ?? '';
+      if (typeof av === 'boolean') av = av ? 1 : 0;
+      if (typeof bv === 'boolean') bv = bv ? 1 : 0;
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+}
+
+function statusBadge(o) {
+  if (o.delivered)         return '<span class="badge badge-delivered">Ausgeliefert</span>';
+  if (o.ready_for_pickup)  return '<span class="badge badge-ready">Abholbereit</span>';
+  if (o.ordered)           return '<span class="badge badge-ordered">Bestellt</span>';
+  if (o.paid)              return '<span class="badge badge-new">Bezahlt</span>';
+  return '<span class="badge badge-new">Neu</span>';
+}
+
+function toggleIcon(val) {
+  return val ? '✅' : '⬜';
+}
+
+function renderTable() {
+  const rows = getFilteredOrders();
+
+  if (rows.length === 0) {
+    ordersBody.innerHTML = '<tr class="state-row"><td colspan="12">Keine Bestellungen gefunden.</td></tr>';
+    return;
   }
 
-  document.getElementById("loginBtn").addEventListener("click", attemptLogin);
-  document.getElementById("loginPass").addEventListener("keydown", e => {
-    if (e.key === "Enter") attemptLogin();
-  });
-  document.getElementById("loginUser").addEventListener("keydown", e => {
-    if (e.key === "Enter") document.getElementById("loginPass").focus();
-  });
+  ordersBody.innerHTML = rows.map(o => {
+    const date = o.created_at
+      ? new Date(o.created_at).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })
+      : '—';
+    const cls = [o.class_level, o.class_letter].filter(Boolean).join('') || o.class || '—';
 
-  /* ── Logout ────────────────────────────────────────────────────── */
-  document.getElementById("logoutBtn").addEventListener("click", () => {
-    isLoggedIn = false;
-    document.getElementById("loginScreen").style.display = "";
-    document.getElementById("dashboard").style.display   = "none";
-    document.getElementById("logoutBtn").hidden = true;
-    document.getElementById("loginUser").value = "";
-    document.getElementById("loginPass").value = "";
-    document.getElementById("loginError").textContent = "";
-  });
+    return `<tr data-id="${escHtml(o.id)}">
+      <td style="white-space:nowrap; color:var(--muted); font-size:.78rem">${date}</td>
+      <td>${escHtml(o.name || '—')}</td>
+      <td>${escHtml(cls)}</td>
+      <td>${escHtml(o.product || '—')}</td>
+      <td>${escHtml(o.size || '—')}</td>
+      <td>${escHtml(o.color || '—')}</td>
+      <td>${statusBadge(o)}</td>
+      <td style="text-align:center">
+        <button class="toggle-btn" data-id="${o.id}" data-field="paid" title="Bezahlt umschalten">
+          ${toggleIcon(o.paid)}
+        </button>
+      </td>
+      <td style="text-align:center">
+        <button class="toggle-btn" data-id="${o.id}" data-field="ordered" title="Bestellt umschalten">
+          ${toggleIcon(o.ordered)}
+        </button>
+      </td>
+      <td style="text-align:center">
+        <button class="toggle-btn" data-id="${o.id}" data-field="ready_for_pickup" title="Abholbereit umschalten">
+          ${toggleIcon(o.ready_for_pickup)}
+        </button>
+      </td>
+      <td style="text-align:center">
+        <button class="toggle-btn" data-id="${o.id}" data-field="delivered" title="Ausgeliefert umschalten">
+          ${toggleIcon(o.delivered)}
+        </button>
+      </td>
+      <td>
+        <button class="detail-link" data-id="${o.id}">Detail</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
 
-  /* ══════════  BESTELLUNGEN LADEN  ══════════════════════════════════ */
-  async function loadOrders() {
-    const tbody = document.getElementById("ordersBody");
-    tbody.innerHTML = `<tr><td colspan="7" class="table-state">Lade Bestellungen…</td></tr>`;
+/* ═══════════════════════════════════════════════════════════════════
+   OPTIMISTISCHES TOGGLE (paid / ordered / ready_for_pickup / delivered)
+   1. Lokalen State sofort ändern und UI neu rendern
+   2. Supabase-Update im Hintergrund
+   3. Bei Fehler: Rollback + Toast
+═══════════════════════════════════════════════════════════════════ */
+ordersBody.addEventListener('click', async e => {
+  const toggleBtn = e.target.closest('.toggle-btn');
+  if (toggleBtn) {
+    const id    = toggleBtn.dataset.id;
+    const field = toggleBtn.dataset.field;
+    const order = allOrders.find(o => String(o.id) === String(id));
+    if (!order) return;
 
-    const { data, error } = await db
-      .from("orders")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const oldVal = !!order[field];
+    const newVal = !oldVal;
+
+    // Optimistisches Update
+    order[field] = newVal;
+    updateStats();
+    renderTable();
+
+    const { error } = await db
+      .from('orders')
+      .update({ [field]: newVal })
+      .eq('id', id);
 
     if (error) {
-      tbody.innerHTML = `<tr><td colspan="7" class="table-state" style="color:var(--red)">
-        Fehler beim Laden: ${error.message}</td></tr>`;
-      return;
+      // Rollback
+      order[field] = oldVal;
+      updateStats();
+      renderTable();
+      showToast('Fehler beim Speichern: ' + error.message, 'error');
+    } else {
+      showToast('Gespeichert ✓', 'success');
     }
-
-    if (!data || data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="table-state">Noch keine Bestellungen vorhanden.</td></tr>`;
-      document.getElementById("orderCount").textContent = "";
-      return;
-    }
-
-    document.getElementById("orderCount").textContent =
-      `${data.length} Bestellung${data.length !== 1 ? "en" : ""}`;
-    tbody.innerHTML = "";
-
-    data.forEach(order => {
-      const tr = document.createElement("tr");
-      const dateStr = order.created_at
-        ? new Date(order.created_at).toLocaleString("de-DE", {
-            day: "2-digit", month: "2-digit", year: "numeric",
-            hour: "2-digit", minute: "2-digit"
-          })
-        : "—";
-
-      tr.innerHTML = `
-        <td>
-          <button class="order-id-btn" data-id="${order.id}">
-            ${order.order_id || order.id.substring(0, 8) + "…"}
-          </button>
-        </td>
-        <td>${order.product_name || "—"}</td>
-        <td>${order.customer_name || "—"}</td>
-        <td>${statusBadge("paid",      order.id, order.paid)}</td>
-        <td>${statusBadge("ordered",   order.id, order.ordered)}</td>
-        <td>${statusBadge("delivered", order.id, order.delivered)}</td>
-        <td class="date-cell">${dateStr}</td>
-      `;
-
-      tr.querySelector(".order-id-btn").addEventListener("click", () => openDetail(order));
-
-      tr.querySelectorAll(".status-badge").forEach(badge => {
-        badge.addEventListener("click", () => openConfirm(badge, order));
-      });
-
-      tbody.appendChild(tr);
-    });
+    return;
   }
 
-  document.getElementById("refreshBtn").addEventListener("click", loadOrders);
-
-  /* ══════════  STATUS-BADGE HTML  ════════════════════════════════════ */
-  function statusBadge(field, orderId, value) {
-    const on = !!value;
-    return `<button class="status-badge ${on ? "on" : "off"}"
-               data-field="${field}" data-order-id="${orderId}">
-               <span class="status-dot"></span>
-               ${on ? "Ja" : "Nein"}
-            </button>`;
+  const detailBtn = e.target.closest('.detail-link');
+  if (detailBtn) {
+    const id    = detailBtn.dataset.id;
+    const order = allOrders.find(o => String(o.id) === String(id));
+    if (order) openDetail(order);
   }
+});
 
-  /* ══════════  BESTÄTIGUNGS-MODAL  ══════════════════════════════════ */
-  let _pendingBadge = null;
-  let _pendingOrder = null;
-  let _pendingNewValue = null;
+/* ═══════════════════════════════════════════════════════════════════
+   DETAIL MODAL
+═══════════════════════════════════════════════════════════════════ */
+function checkIcon(val) {
+  return val
+    ? '<span class="check-icon check-yes">✔ Ja</span>'
+    : '<span class="check-icon check-no">✘ Nein</span>';
+}
 
-  function openConfirm(badge, order) {
-    const field     = badge.dataset.field;
-    const newValue  = badge.classList.contains("on") ? false : true;
-    const label     = FIELD_LABELS[field] || field;
-    const valueText = newValue ? "✓ JA" : "✗ NEIN";
-    const email     = order.customer_email || "—";
-    const name      = order.customer_name  || "Kunde";
+function openDetail(o) {
+  const cls  = [o.class_level, o.class_letter].filter(Boolean).join('') || o.class || '—';
+  const date = o.created_at
+    ? new Date(o.created_at).toLocaleString('de-DE')
+    : '—';
 
-    _pendingBadge    = badge;
-    _pendingOrder    = order;
-    _pendingNewValue = newValue;
+  detailTitle.textContent = o.name || 'Bestellung';
 
-    document.getElementById("confirmInfo").innerHTML =
-      `Status <strong>${label}</strong> für <strong>${name}</strong> wird auf <strong>${valueText}</strong> gesetzt.`;
+  const rows = [
+    ['Bestelldatum',  date],
+    ['Name',          o.name || '—'],
+    ['E-Mail',        o.email || '—'],
+    ['Klasse',        cls],
+    ['Geschlecht',    o.gender || '—'],
+    ['Produkt',       o.product || '—'],
+    ['Größe',         o.size || '—'],
+    ['Farbe',         o.color || '—'],
+    ['Anmerkung',     o.note || '—'],
+    ['Bezahlt',       null, o.paid],
+    ['Bestellt',      null, o.ordered],
+    ['Abholbereit',   null, o.ready_for_pickup],
+    ['Ausgeliefert',  null, o.delivered],
+  ];
 
-    document.getElementById("confirmNote").textContent = newValue
-      ? `Es wird automatisch eine E-Mail an ${email} gesendet.`
-      : `Keine E-Mail wird versendet (Status wird nur zurückgesetzt).`;
+  detailBody.innerHTML = rows.map(([key, val, bool]) => `
+    <div class="detail-row">
+      <span class="detail-key">${key}</span>
+      <span class="detail-val">${bool !== undefined ? checkIcon(bool) : escHtml(String(val))}</span>
+    </div>`
+  ).join('');
 
-    document.getElementById("confirmLabel").textContent = newValue
-      ? "Bestätigen & E-Mail senden"
-      : "Bestätigen";
-    document.getElementById("confirmSpinner").hidden    = true;
-    document.getElementById("confirmOk").disabled       = false;
+  detailOverlay.classList.add('open');
+}
 
-    document.getElementById("confirmOverlay").classList.add("active");
-    document.body.style.overflow = "hidden";
-  }
+detailClose.addEventListener('click',  () => detailOverlay.classList.remove('open'));
+detailOverlay.addEventListener('click', e => { if (e.target === detailOverlay) detailOverlay.classList.remove('open'); });
 
-  function closeConfirm() {
-    document.getElementById("confirmOverlay").classList.remove("active");
-    document.body.style.overflow = "";
-    _pendingBadge    = null;
-    _pendingOrder    = null;
-    _pendingNewValue = null;
-  }
+/* ═══════════════════════════════════════════════════════════════════
+   FILTER & SUCHE
+═══════════════════════════════════════════════════════════════════ */
+searchInput.addEventListener('input',  renderTable);
+filterStatus.addEventListener('change', renderTable);
+filterProduct.addEventListener('change', renderTable);
 
-  document.getElementById("confirmCancel").addEventListener("click", closeConfirm);
-  document.getElementById("confirmOverlay").addEventListener("click", e => {
-    if (e.target === e.currentTarget) closeConfirm();
+/* ═══════════════════════════════════════════════════════════════════
+   CSV EXPORT
+═══════════════════════════════════════════════════════════════════ */
+exportBtn.addEventListener('click', () => {
+  const rows = getFilteredOrders();
+  if (rows.length === 0) { showToast('Keine Daten zum Exportieren.', 'error'); return; }
+
+  const headers = ['ID','Datum','Name','E-Mail','Klasse','Geschlecht','Produkt','Größe','Farbe','Anmerkung','Bezahlt','Bestellt','Abholbereit','Ausgeliefert'];
+  const csvRows = rows.map(o => {
+    const cls  = [o.class_level, o.class_letter].filter(Boolean).join('') || o.class || '';
+    const date = o.created_at ? new Date(o.created_at).toLocaleString('de-DE') : '';
+    return [
+      o.id, date, o.name, o.email, cls, o.gender, o.product, o.size, o.color, o.note,
+      o.paid ? 'Ja':'Nein',
+      o.ordered ? 'Ja':'Nein',
+      o.ready_for_pickup ? 'Ja':'Nein',
+      o.delivered ? 'Ja':'Nein'
+    ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',');
   });
 
-  document.getElementById("confirmOk").addEventListener("click", async () => {
-    if (!_pendingBadge) return;
-
-    const badge    = _pendingBadge;
-    const order    = _pendingOrder;
-    const newValue = _pendingNewValue;
-    const field    = badge.dataset.field;
-
-    // Spinner zeigen
-    document.getElementById("confirmLabel").textContent = "Wird gespeichert…";
-    document.getElementById("confirmSpinner").hidden    = false;
-    document.getElementById("confirmOk").disabled       = true;
-    badge.classList.add("pending");
-
-    try {
-      // 1. Supabase aktualisieren
-      const { error: dbError } = await db
-        .from("orders")
-        .update({ [field]: newValue })
-        .eq("id", order.id);
-
-      if (dbError) throw new Error("Supabase: " + dbError.message);
-
-      // 2. E-Mail an Besteller senden (nur wenn Status auf "Ja" gesetzt wird)
-      if (newValue === true) {
-        const templateId  = BREVO_STATUS_TEMPLATES[field];
-        const statusLabel = FIELD_LABELS[field] || field;
-        await sendBrevoEmail(
-          order.customer_email,
-          order.customer_name,
-          templateId,
-          {
-            customer_name:  order.customer_name  || "—",
-            customer_email: order.customer_email || "—",
-            order_id:       order.order_id       || "—",
-            product_name:   order.product_name   || "—",
-            product_price:  order.product_price  || "—",
-            size:           order.size           || "—",
-            color:          order.color          || "—",
-            status_field:   statusLabel,
-            order_date:     order.created_at
-              ? new Date(order.created_at).toLocaleDateString("de-DE")
-              : "—",
-          }
-        );
-      }
-
-      // 3. Badge im UI aktualisieren
-      badge.classList.remove("pending");
-      badge.classList.toggle("on",  newValue);
-      badge.classList.toggle("off", !newValue);
-      badge.innerHTML = `<span class="status-dot"></span>${newValue ? "Ja" : "Nein"}`;
-
-      // 4. Order-Objekt lokal aktualisieren
-      order[field] = newValue;
-
-      closeConfirm();
-
-    } catch (err) {
-      console.error("Fehler:", err);
-      badge.classList.remove("pending");
-      document.getElementById("confirmLabel").textContent = "Bestätigen & E-Mail senden";
-      document.getElementById("confirmSpinner").hidden    = true;
-      document.getElementById("confirmOk").disabled       = false;
-      document.getElementById("confirmInfo").innerHTML +=
-        `<br><span style="color:var(--red);font-size:.8rem">⚠ Fehler: ${err.message}</span>`;
-    }
+  const csv  = [headers.join(','), ...csvRows].join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), {
+    href: url,
+    download: `bestellungen_${new Date().toISOString().slice(0,10)}.csv`
   });
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSV exportiert ✓');
+});
 
-  /* ══════════  DETAIL MODAL  ═════════════════════════════════════════ */
-  function openDetail(order) {
-    document.getElementById("detailTitle").textContent =
-      `Bestellung ${order.order_id || "—"}`;
-
-    const grid = document.getElementById("detailGrid");
-    const rows = [
-      { label: "Bestell-ID",       value: order.order_id || "—" },
-      { label: "Datum",            value: order.created_at
-          ? new Date(order.created_at).toLocaleString("de-DE")
-          : "—" },
-      { label: "divider" },
-      { label: "Produkt",          value: order.product_name   || "—" },
-      { label: "Preis",            value: order.product_price  || "—" },
-      { label: "Größe",            value: order.size           || "—" },
-      { label: "Farbe",            value: order.color          || "—" },
-      { label: "Geschlecht",       value: order.gender         || "—" },
-      { label: "Klasse",           value: `${order.class_level || ""}${order.class_letter || ""}` || "—" },
-      { label: "divider" },
-      { label: "Name",             value: order.customer_name  || "—" },
-      { label: "E-Mail",           value: order.customer_email || "—", full: true },
-      { label: "Anmerkung",        value: order.note           || "—", full: true },
-      { label: "divider" },
-      { label: "Bezahlt",          value: order.paid      ? "✓ Ja" : "✗ Nein" },
-      { label: "Bestellt",         value: order.ordered   ? "✓ Ja" : "✗ Nein" },
-      { label: "Ausgeliefert",     value: order.delivered ? "✓ Ja" : "✗ Nein" },
-    ];
-
-    grid.innerHTML = rows.map(r => {
-      if (r.label === "divider") return `<hr class="detail-divider" />`;
-      return `
-        <div class="detail-item${r.full ? " full" : ""}">
-          <span class="detail-label">${r.label}</span>
-          <span class="detail-value">${r.value}</span>
-        </div>`;
-    }).join("");
-
-    document.getElementById("detailOverlay").classList.add("active");
-    document.body.style.overflow = "hidden";
-  }
-
-  function closeDetail() {
-    document.getElementById("detailOverlay").classList.remove("active");
-    document.body.style.overflow = "";
-  }
-
-  document.getElementById("detailClose").addEventListener("click", closeDetail);
-  document.getElementById("detailOverlay").addEventListener("click", e => {
-    if (e.target === e.currentTarget) closeDetail();
-  });
-  document.addEventListener("keydown", e => {
-    if (e.key === "Escape") { closeDetail(); closeConfirm(); }
-  });
-  </script>
+/* ═══════════════════════════════════════════════════════════════════
+   HILFSFUNKTION: HTML-Escaping
+   Verhindert XSS beim Einsetzen von Datenbankwerten in innerHTML
+═══════════════════════════════════════════════════════════════════ */
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+</script>
 </body>
 </html>
